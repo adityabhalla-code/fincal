@@ -172,6 +172,64 @@ class TestCalculateFDWithTopups:
         assert r_q.maturity_amount > r_y.maturity_amount
 
 
+class TestMonthsTenure:
+    def test_months_only_no_years(self):
+        # 0 years 6 months, quarterly: A = P * (1 + r/4)^(6*4/12) = P * (1+r/4)^2
+        result = calculate_fd(100_000, 8.0, 0, CompoundingFrequency.QUARTERLY, tenure_months=6)
+        expected = 100_000 * (1 + 0.08 / 4) ** 2
+        assert abs(result.maturity_amount - expected) < 0.01
+
+    def test_years_and_months(self):
+        # 2 years 3 months quarterly
+        result = calculate_fd(100_000, 8.0, 2, CompoundingFrequency.QUARTERLY, tenure_months=3)
+        after_years = 100_000 * (1 + 0.08 / 4) ** 8
+        expected    = after_years * (1 + 0.08 / 4) ** 1   # 3 months = 1 quarter
+        assert abs(result.maturity_amount - expected) < 0.01
+
+    def test_partial_row_appended(self):
+        result = calculate_fd(100_000, 8.0, 2, tenure_months=6)
+        assert len(result.year_wise) == 3   # 2 full years + 1 partial row
+
+    def test_partial_row_period_months(self):
+        result = calculate_fd(100_000, 8.0, 1, tenure_months=9)
+        assert result.year_wise[-1].period_months == 9
+
+    def test_full_year_rows_have_period_months_12(self):
+        result = calculate_fd(100_000, 7.0, 3, tenure_months=6)
+        for yr in result.year_wise[:3]:
+            assert yr.period_months == 12
+
+    def test_no_months_no_partial_row(self):
+        result = calculate_fd(100_000, 7.0, 3)
+        assert len(result.year_wise) == 3
+        assert all(yr.period_months == 12 for yr in result.year_wise)
+
+    def test_tenure_months_stored_in_result(self):
+        result = calculate_fd(100_000, 7.0, 2, tenure_months=5)
+        assert result.tenure_months == 5
+
+    def test_zero_years_zero_months_raises(self):
+        with pytest.raises(ValueError):
+            calculate_fd(100_000, 7.0, 0, tenure_months=0)
+
+    def test_invalid_tenure_months_raises(self):
+        with pytest.raises(ValueError):
+            calculate_fd(100_000, 7.0, 1, tenure_months=12)
+        with pytest.raises(ValueError):
+            calculate_fd(100_000, 7.0, 1, tenure_months=-1)
+
+    def test_months_maturity_greater_than_years_only(self):
+        base  = calculate_fd(100_000, 7.0, 2)
+        extra = calculate_fd(100_000, 7.0, 2, tenure_months=6)
+        assert extra.maturity_amount > base.maturity_amount
+
+    def test_partial_continuity(self):
+        result = calculate_fd(100_000, 8.0, 2, tenure_months=3)
+        yr2_close    = result.year_wise[1].closing_balance
+        partial_open = result.year_wise[2].opening_balance
+        assert abs(yr2_close - partial_open) < 0.001
+
+
 class TestFormatInr:
     def test_basic(self):
         assert format_inr(100_000) == "₹100,000.00"

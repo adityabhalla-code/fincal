@@ -21,11 +21,12 @@ FREQUENCY_LABELS = {
 
 @dataclass
 class YearResult:
-    year: int
+    year: int           # 0 = partial-month row
     opening_balance: float
     interest_earned: float
     closing_balance: float
     topup: float = 0.0
+    period_months: int = 12   # < 12 for the trailing partial row
 
 
 @dataclass
@@ -33,6 +34,7 @@ class FDResult:
     principal: float
     annual_rate: float
     tenure_years: int
+    tenure_months: int          # extra months beyond whole years
     compounding: CompoundingFrequency
     maturity_amount: float
     total_interest: float
@@ -45,11 +47,12 @@ def calculate_fd(
     annual_rate_percent: float,
     tenure_years: int,
     compounding: CompoundingFrequency = CompoundingFrequency.QUARTERLY,
+    tenure_months: int = 0,
 ) -> FDResult:
-    """A = P * (1 + r/n)^(n*t)"""
+    """A = P * (1 + r/n)^(n*t), with optional extra months."""
     return calculate_fd_with_topups(
         principal, annual_rate_percent, tenure_years,
-        [0.0] * tenure_years, compounding,
+        [0.0] * tenure_years, compounding, tenure_months,
     )
 
 
@@ -59,22 +62,26 @@ def calculate_fd_with_topups(
     tenure_years: int,
     topups: list[float],
     compounding: CompoundingFrequency = CompoundingFrequency.QUARTERLY,
+    tenure_months: int = 0,
 ) -> FDResult:
     """
-    FD with optional annual top-ups added at the start of each year.
+    FD with optional annual top-ups and optional extra months.
 
     topups: list of length tenure_years; topups[i] is added before year i+1 compounds.
+    tenure_months: additional months (0–11) compounded after the whole years.
     """
     if principal <= 0:
         raise ValueError("Principal must be positive")
     if annual_rate_percent <= 0:
         raise ValueError("Interest rate must be positive")
-    if tenure_years < 1:
-        raise ValueError("Tenure must be at least 1 year")
-    if len(topups) != tenure_years:
+    if tenure_years < 1 and tenure_months < 1:
+        raise ValueError("Tenure must be at least 1 month")
+    if tenure_years > 0 and len(topups) != tenure_years:
         raise ValueError("topups length must equal tenure_years")
     if any(t < 0 for t in topups):
         raise ValueError("Top-up amounts must be non-negative")
+    if not (0 <= tenure_months <= 11):
+        raise ValueError("tenure_months must be between 0 and 11")
 
     r = annual_rate_percent / 100
     n = compounding.value
@@ -86,7 +93,14 @@ def calculate_fd_with_topups(
         opening = balance + topup
         closing = opening * (1 + r / n) ** n
         interest = closing - opening
-        year_wise.append(YearResult(year, opening, interest, closing, topup))
+        year_wise.append(YearResult(year, opening, interest, closing, topup, 12))
+        balance = closing
+
+    if tenure_months > 0:
+        opening = balance
+        closing = opening * (1 + r / n) ** (tenure_months * n / 12)
+        interest = closing - opening
+        year_wise.append(YearResult(0, opening, interest, closing, 0.0, tenure_months))
         balance = closing
 
     maturity = year_wise[-1].closing_balance
@@ -95,6 +109,7 @@ def calculate_fd_with_topups(
         principal=principal,
         annual_rate=annual_rate_percent,
         tenure_years=tenure_years,
+        tenure_months=tenure_months,
         compounding=compounding,
         maturity_amount=maturity,
         total_interest=maturity - principal - total_topups,
@@ -115,9 +130,12 @@ def print_result(result: FDResult) -> None:
     print(" FIXED DEPOSIT CALCULATOR - RESULT ".center(width, "="))
     print("=" * width)
 
+    tenure_str = f"{result.tenure_years} yr" if result.tenure_years else ""
+    if result.tenure_months:
+        tenure_str += f" {result.tenure_months} mo"
     print(f"\n  Principal Amount   : {format_inr(result.principal)}")
     print(f"  Annual Rate        : {result.annual_rate:.2f}%")
-    print(f"  Tenure             : {result.tenure_years} year(s)")
+    print(f"  Tenure             : {tenure_str.strip()}")
     print(f"  Compounding        : {FREQUENCY_LABELS[result.compounding]}")
     if has_topups:
         print(f"  Total Top-ups      : {format_inr(result.total_topups)}")
@@ -134,17 +152,18 @@ def print_result(result: FDResult) -> None:
     print("-" * width)
 
     for yr in result.year_wise:
+        label = f"Yr {yr.year}" if yr.period_months == 12 else f"+{yr.period_months}m"
         if has_topups:
             topup_str = f"+{format_inr(yr.topup)}" if yr.topup > 0 else "—"
             print(
-                f"  {yr.year:<6} {topup_str:>12} "
+                f"  {label:<8} {topup_str:>12} "
                 f"{format_inr(yr.opening_balance):>18} "
                 f"{format_inr(yr.interest_earned):>18} "
                 f"{format_inr(yr.closing_balance):>18}"
             )
         else:
             print(
-                f"  {yr.year:<6} "
+                f"  {label:<8} "
                 f"{format_inr(yr.opening_balance):>18} "
                 f"{format_inr(yr.interest_earned):>18} "
                 f"{format_inr(yr.closing_balance):>18}"
@@ -198,6 +217,25 @@ def select_compounding() -> CompoundingFrequency:
             print("  Invalid input.")
 
 
+def get_tenure() -> tuple[int, int]:
+    """Return (years, months) with at least 1 month total."""
+    while True:
+        years = get_int("  Enter Tenure - Years (0 for months only): ", min_val=0)
+        try:
+            mo_raw = input("  Additional Months (0-11, Enter = 0): ").strip()
+            months = int(mo_raw) if mo_raw else 0
+        except ValueError:
+            print("  Invalid months. Try again.")
+            continue
+        if not (0 <= months <= 11):
+            print("  Months must be between 0 and 11.")
+            continue
+        if years == 0 and months == 0:
+            print("  Tenure must be at least 1 month. Try again.")
+            continue
+        return years, months
+
+
 def collect_topups(tenure: int) -> list[float]:
     print(f"\n  Enter top-up amount for each year (press Enter to skip / enter 0 for none):")
     topups = []
@@ -214,7 +252,7 @@ def main() -> None:
 
     principal = get_float("\n  Enter Principal Amount (₹): ")
     rate = get_float("  Enter Annual Interest Rate (%): ")
-    tenure = get_int("  Enter Tenure (years, min 1): ", min_val=1)
+    tenure, extra_months = get_tenure()
     compounding = select_compounding()
 
     print("\n  Would you like to add annual top-ups?")
@@ -223,9 +261,9 @@ def main() -> None:
 
     if use_topups:
         topups = collect_topups(tenure)
-        result = calculate_fd_with_topups(principal, rate, tenure, topups, compounding)
+        result = calculate_fd_with_topups(principal, rate, tenure, topups, compounding, extra_months)
     else:
-        result = calculate_fd(principal, rate, tenure, compounding)
+        result = calculate_fd(principal, rate, tenure, compounding, extra_months)
 
     print_result(result)
 

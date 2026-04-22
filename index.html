@@ -235,6 +235,13 @@
     .td-topup { color: var(--accent); font-weight: 600; }
     .td-interest { color: var(--warning); }
 
+    /* ── Tenure row (years + months side by side) ── */
+    .tenure-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
     /* ── Install banner ── */
     #install-banner {
       display: none;
@@ -289,9 +296,15 @@
 
     <div class="field">
       <label>Tenure</label>
-      <div class="input-wrap has-suffix">
-        <input type="number" id="s-tenure" placeholder="e.g. 5" min="1" max="50" inputmode="numeric" />
-        <span class="suffix">years</span>
+      <div class="tenure-grid">
+        <div class="input-wrap has-suffix">
+          <input type="number" id="s-years" placeholder="0" min="0" max="50" inputmode="numeric" />
+          <span class="suffix">yr</span>
+        </div>
+        <div class="input-wrap has-suffix">
+          <input type="number" id="s-months" placeholder="0" min="0" max="11" inputmode="numeric" />
+          <span class="suffix">mo</span>
+        </div>
       </div>
     </div>
 
@@ -408,18 +421,29 @@
   }
 
   // ── Core calculation ──────────────────────────────────────────
-  // topups: array of length `tenure`, amount added at START of each year
-  function calcRows(principal, rate, tenure, n, topups) {
+  // tenureMonths: extra months after whole years (0–11)
+  // topups: array of length tenureYears, added at START of each year
+  function calcRows(principal, rate, tenureYears, tenureMonths, n, topups) {
     const r = rate / 100;
     let balance = principal;
-    return Array.from({ length: tenure }, (_, i) => {
+    const rows = [];
+
+    for (let i = 0; i < tenureYears; i++) {
       const topup   = topups ? (topups[i] || 0) : 0;
       const opening = balance + topup;
       const closing = opening * Math.pow(1 + r / n, n);
-      const result  = { year: i + 1, topup, opening, interest: closing - opening, closing };
+      rows.push({ label: `Yr ${i + 1}`, topup, opening, interest: closing - opening, closing });
       balance = closing;
-      return result;
-    });
+    }
+
+    // Partial months row
+    if (tenureMonths > 0) {
+      const opening  = balance;
+      const closing  = opening * Math.pow(1 + r / n, tenureMonths * n / 12);
+      rows.push({ label: `+${tenureMonths}m`, topup: 0, opening, interest: closing - opening, closing });
+    }
+
+    return rows;
   }
 
   // ── Render helpers ────────────────────────────────────────────
@@ -455,7 +479,7 @@
     const topupTh = hasTopup ? '<th>Top-up</th>' : '';
     const body = rows.map(r => `
       <tr>
-        <td>${r.year}</td>
+        <td>${r.label}</td>
         ${hasTopup ? `<td class="td-topup">${r.topup > 0 ? '+' + fmt(r.topup) : '—'}</td>` : ''}
         <td>${fmt(r.opening)}</td>
         <td class="td-interest">${fmt(r.interest)}</td>
@@ -463,7 +487,7 @@
       </tr>`).join('');
     $(tableId).innerHTML = `
       <thead><tr>
-        <th>Yr</th>${topupTh}
+        <th>Period</th>${topupTh}
         <th>Opening</th><th>Interest</th><th>Closing</th>
       </tr></thead>
       <tbody>${body}</tbody>`;
@@ -478,13 +502,14 @@
   // ── Standard FD ───────────────────────────────────────────────
   function calcStd() {
     clearErr('s-error');
-    const p = fv('s-principal'), r = fv('s-rate'),
-          t = iv('s-tenure'),   n = iv('s-freq');
-    if (p <= 0) return showErr('s-error', 'Enter a valid principal amount.');
-    if (r <= 0) return showErr('s-error', 'Enter a valid interest rate.');
-    if (t < 1)  return showErr('s-error', 'Tenure must be at least 1 year.');
+    const p      = fv('s-principal'), r = fv('s-rate'), n = iv('s-freq');
+    const years  = iv('s-years'),  months = iv('s-months');
+    if (p <= 0)                      return showErr('s-error', 'Enter a valid principal amount.');
+    if (r <= 0)                      return showErr('s-error', 'Enter a valid interest rate.');
+    if (years === 0 && months === 0) return showErr('s-error', 'Enter a tenure (years and/or months).');
+    if (months < 0 || months > 11)  return showErr('s-error', 'Months must be between 0 and 11.');
 
-    const rows    = calcRows(p, r, t, n, null);
+    const rows    = calcRows(p, r, years, months, n, null);
     const maturity = rows[rows.length - 1].closing;
     renderSummary('s-summary', p, maturity, 0);
     renderTable('s-table', rows, false);
@@ -525,7 +550,7 @@
     const topups = Array.from({ length: t }, (_, i) =>
       Math.max(0, fv(`topup-${i + 1}`))
     );
-    const rows       = calcRows(p, r, t, n, topups);
+    const rows       = calcRows(p, r, t, 0, n, topups);
     const maturity   = rows[rows.length - 1].closing;
     const totalTopup = topups.reduce((a, b) => a + b, 0);
     renderSummary('t-summary', p, maturity, totalTopup);

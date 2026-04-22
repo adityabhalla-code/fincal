@@ -1,6 +1,6 @@
 """Fixed Deposit (FD) Investment Calculator"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -25,6 +25,7 @@ class YearResult:
     opening_balance: float
     interest_earned: float
     closing_balance: float
+    topup: float = 0.0
 
 
 @dataclass
@@ -36,6 +37,7 @@ class FDResult:
     maturity_amount: float
     total_interest: float
     year_wise: list[YearResult]
+    total_topups: float = 0.0
 
 
 def calculate_fd(
@@ -44,11 +46,24 @@ def calculate_fd(
     tenure_years: int,
     compounding: CompoundingFrequency = CompoundingFrequency.QUARTERLY,
 ) -> FDResult:
-    """
-    Calculate FD maturity amount using compound interest formula:
-    A = P * (1 + r/n)^(n*t)
+    """A = P * (1 + r/n)^(n*t)"""
+    return calculate_fd_with_topups(
+        principal, annual_rate_percent, tenure_years,
+        [0.0] * tenure_years, compounding,
+    )
 
-    Where n is compounding frequency per year.
+
+def calculate_fd_with_topups(
+    principal: float,
+    annual_rate_percent: float,
+    tenure_years: int,
+    topups: list[float],
+    compounding: CompoundingFrequency = CompoundingFrequency.QUARTERLY,
+) -> FDResult:
+    """
+    FD with optional annual top-ups added at the start of each year.
+
+    topups: list of length tenure_years; topups[i] is added before year i+1 compounds.
     """
     if principal <= 0:
         raise ValueError("Principal must be positive")
@@ -56,38 +71,45 @@ def calculate_fd(
         raise ValueError("Interest rate must be positive")
     if tenure_years < 1:
         raise ValueError("Tenure must be at least 1 year")
+    if len(topups) != tenure_years:
+        raise ValueError("topups length must equal tenure_years")
+    if any(t < 0 for t in topups):
+        raise ValueError("Top-up amounts must be non-negative")
 
     r = annual_rate_percent / 100
     n = compounding.value
     year_wise = []
-
     balance = principal
+
     for year in range(1, tenure_years + 1):
-        opening = balance
+        topup = topups[year - 1]
+        opening = balance + topup
         closing = opening * (1 + r / n) ** n
         interest = closing - opening
-        year_wise.append(YearResult(year, opening, interest, closing))
+        year_wise.append(YearResult(year, opening, interest, closing, topup))
         balance = closing
 
     maturity = year_wise[-1].closing_balance
+    total_topups = sum(topups)
     return FDResult(
         principal=principal,
         annual_rate=annual_rate_percent,
         tenure_years=tenure_years,
         compounding=compounding,
         maturity_amount=maturity,
-        total_interest=maturity - principal,
+        total_interest=maturity - principal - total_topups,
         year_wise=year_wise,
+        total_topups=total_topups,
     )
 
 
 def format_inr(amount: float) -> str:
-    """Format amount in Indian number system (lakhs/crores)."""
     return f"₹{amount:,.2f}"
 
 
 def print_result(result: FDResult) -> None:
-    width = 65
+    has_topups = result.total_topups > 0
+    width = 78 if has_topups else 65
 
     print("\n" + "=" * width)
     print(" FIXED DEPOSIT CALCULATOR - RESULT ".center(width, "="))
@@ -97,18 +119,36 @@ def print_result(result: FDResult) -> None:
     print(f"  Annual Rate        : {result.annual_rate:.2f}%")
     print(f"  Tenure             : {result.tenure_years} year(s)")
     print(f"  Compounding        : {FREQUENCY_LABELS[result.compounding]}")
+    if has_topups:
+        print(f"  Total Top-ups      : {format_inr(result.total_topups)}")
+        print(f"  Total Invested     : {format_inr(result.principal + result.total_topups)}")
 
     print("\n" + "-" * width)
-    print(f"  {'Year':<6} {'Opening Balance':>18} {'Interest Earned':>18} {'Closing Balance':>18}")
+    if has_topups:
+        print(
+            f"  {'Year':<6} {'Top-up':>12} {'Opening Balance':>18} "
+            f"{'Interest Earned':>18} {'Closing Balance':>18}"
+        )
+    else:
+        print(f"  {'Year':<6} {'Opening Balance':>18} {'Interest Earned':>18} {'Closing Balance':>18}")
     print("-" * width)
 
     for yr in result.year_wise:
-        print(
-            f"  {yr.year:<6} "
-            f"{format_inr(yr.opening_balance):>18} "
-            f"{format_inr(yr.interest_earned):>18} "
-            f"{format_inr(yr.closing_balance):>18}"
-        )
+        if has_topups:
+            topup_str = f"+{format_inr(yr.topup)}" if yr.topup > 0 else "—"
+            print(
+                f"  {yr.year:<6} {topup_str:>12} "
+                f"{format_inr(yr.opening_balance):>18} "
+                f"{format_inr(yr.interest_earned):>18} "
+                f"{format_inr(yr.closing_balance):>18}"
+            )
+        else:
+            print(
+                f"  {yr.year:<6} "
+                f"{format_inr(yr.opening_balance):>18} "
+                f"{format_inr(yr.interest_earned):>18} "
+                f"{format_inr(yr.closing_balance):>18}"
+            )
 
     print("=" * width)
     print(f"  Total Interest     : {format_inr(result.total_interest)}")
@@ -116,11 +156,14 @@ def print_result(result: FDResult) -> None:
     print("=" * width + "\n")
 
 
-def get_float(prompt: str, min_val: float = 0) -> float:
+def get_float(prompt: str, min_val: float = 0, allow_zero: bool = False) -> float:
     while True:
         try:
             value = float(input(prompt).replace(",", ""))
-            if value <= min_val:
+            if allow_zero and value < 0:
+                print("  Please enter a non-negative value.")
+                continue
+            if not allow_zero and value <= min_val:
                 print(f"  Please enter a value greater than {min_val}.")
                 continue
             return value
@@ -155,6 +198,15 @@ def select_compounding() -> CompoundingFrequency:
             print("  Invalid input.")
 
 
+def collect_topups(tenure: int) -> list[float]:
+    print(f"\n  Enter top-up amount for each year (press Enter to skip / enter 0 for none):")
+    topups = []
+    for year in range(1, tenure + 1):
+        amount = get_float(f"    Year {year} top-up (₹): ", allow_zero=True)
+        topups.append(amount)
+    return topups
+
+
 def main() -> None:
     print("\n" + "=" * 65)
     print(" FIXED DEPOSIT (FD) INVESTMENT CALCULATOR ".center(65, "="))
@@ -165,7 +217,16 @@ def main() -> None:
     tenure = get_int("  Enter Tenure (years, min 1): ", min_val=1)
     compounding = select_compounding()
 
-    result = calculate_fd(principal, rate, tenure, compounding)
+    print("\n  Would you like to add annual top-ups?")
+    print("  (Top-up = additional amount invested at the start of each year)")
+    use_topups = input("  Add top-ups? (y/n, default n): ").strip().lower() == "y"
+
+    if use_topups:
+        topups = collect_topups(tenure)
+        result = calculate_fd_with_topups(principal, rate, tenure, topups, compounding)
+    else:
+        result = calculate_fd(principal, rate, tenure, compounding)
+
     print_result(result)
 
     while True:

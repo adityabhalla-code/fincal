@@ -6,6 +6,7 @@ from fd_calculator import (
     FDResult,
     YearResult,
     calculate_fd,
+    calculate_fd_with_topups,
     format_inr,
 )
 
@@ -15,7 +16,6 @@ class TestCalculateFD:
         result = calculate_fd(100_000, 7.0, 1, CompoundingFrequency.QUARTERLY)
         assert isinstance(result, FDResult)
         assert len(result.year_wise) == 1
-        # A = 100000 * (1 + 0.07/4)^4
         expected = 100_000 * (1 + 0.07 / 4) ** 4
         assert abs(result.maturity_amount - expected) < 0.01
 
@@ -26,8 +26,7 @@ class TestCalculateFD:
 
     def test_single_year_yearly(self):
         result = calculate_fd(100_000, 8.0, 1, CompoundingFrequency.YEARLY)
-        expected = 100_000 * 1.08
-        assert abs(result.maturity_amount - expected) < 0.01
+        assert abs(result.maturity_amount - 108_000) < 0.01
 
     def test_multi_year_quarterly(self):
         result = calculate_fd(100_000, 7.0, 5, CompoundingFrequency.QUARTERLY)
@@ -44,7 +43,7 @@ class TestCalculateFD:
         result = calculate_fd(100_000, 8.0, 4, CompoundingFrequency.QUARTERLY)
         for i in range(1, len(result.year_wise)):
             prev_close = result.year_wise[i - 1].closing_balance
-            curr_open = result.year_wise[i].opening_balance
+            curr_open  = result.year_wise[i].opening_balance
             assert abs(prev_close - curr_open) < 0.001
 
     def test_year_wise_interest_matches_diff(self):
@@ -71,6 +70,11 @@ class TestCalculateFD:
         assert result.annual_rate == 7.0
         assert result.tenure_years == 1
         assert result.compounding == CompoundingFrequency.QUARTERLY
+        assert result.total_topups == 0.0
+
+    def test_all_topups_zero_in_standard_fd(self):
+        result = calculate_fd(100_000, 7.0, 3)
+        assert all(yr.topup == 0.0 for yr in result.year_wise)
 
     def test_invalid_principal_raises(self):
         with pytest.raises(ValueError):
@@ -93,6 +97,79 @@ class TestCalculateFD:
         assert len(result.year_wise) == 20
         expected = 100_000 * (1 + 0.07 / 4) ** (4 * 20)
         assert abs(result.maturity_amount - expected) < 0.01
+
+
+class TestCalculateFDWithTopups:
+    def test_zero_topups_matches_standard(self):
+        r1 = calculate_fd(100_000, 7.0, 3, CompoundingFrequency.QUARTERLY)
+        r2 = calculate_fd_with_topups(100_000, 7.0, 3, [0, 0, 0], CompoundingFrequency.QUARTERLY)
+        assert abs(r1.maturity_amount - r2.maturity_amount) < 0.001
+
+    def test_topup_increases_maturity(self):
+        base   = calculate_fd(100_000, 7.0, 3)
+        topped = calculate_fd_with_topups(100_000, 7.0, 3, [10_000, 0, 0])
+        assert topped.maturity_amount > base.maturity_amount
+
+    def test_topup_added_at_start_of_year(self):
+        # Year 1 opening = principal + topup[0]
+        result = calculate_fd_with_topups(100_000, 8.0, 2, [20_000, 0])
+        assert abs(result.year_wise[0].opening_balance - 120_000) < 0.001
+
+    def test_topup_year2_opening(self):
+        result = calculate_fd_with_topups(100_000, 8.0, 2, [0, 15_000])
+        yr1_close = result.year_wise[0].closing_balance
+        assert abs(result.year_wise[1].opening_balance - (yr1_close + 15_000)) < 0.001
+
+    def test_total_topups_sum(self):
+        topups = [10_000, 5_000, 20_000]
+        result = calculate_fd_with_topups(100_000, 7.0, 3, topups)
+        assert abs(result.total_topups - 35_000) < 0.001
+
+    def test_total_interest_excludes_topups(self):
+        topups = [10_000, 10_000]
+        result = calculate_fd_with_topups(100_000, 7.0, 2, topups)
+        expected_interest = result.maturity_amount - result.principal - result.total_topups
+        assert abs(result.total_interest - expected_interest) < 0.001
+
+    def test_topup_stored_in_year_result(self):
+        topups = [5_000, 0, 8_000]
+        result = calculate_fd_with_topups(100_000, 7.0, 3, topups)
+        assert result.year_wise[0].topup == 5_000
+        assert result.year_wise[1].topup == 0
+        assert result.year_wise[2].topup == 8_000
+
+    def test_year_wise_continuity_with_topups(self):
+        topups = [10_000, 5_000, 0, 20_000]
+        result = calculate_fd_with_topups(100_000, 7.0, 4, topups)
+        for i in range(1, len(result.year_wise)):
+            prev_close = result.year_wise[i - 1].closing_balance
+            curr_topup = result.year_wise[i].topup
+            curr_open  = result.year_wise[i].opening_balance
+            assert abs(prev_close + curr_topup - curr_open) < 0.001
+
+    def test_maturity_equals_last_year_closing(self):
+        topups = [5_000, 10_000, 0]
+        result = calculate_fd_with_topups(100_000, 7.5, 3, topups)
+        assert abs(result.maturity_amount - result.year_wise[-1].closing_balance) < 0.001
+
+    def test_wrong_topups_length_raises(self):
+        with pytest.raises(ValueError):
+            calculate_fd_with_topups(100_000, 7.0, 3, [1000, 2000])
+
+    def test_negative_topup_raises(self):
+        with pytest.raises(ValueError):
+            calculate_fd_with_topups(100_000, 7.0, 2, [1000, -500])
+
+    def test_single_year_with_topup(self):
+        # P=100k, topup=50k at start → 150k compounds for 1 year at 8% quarterly
+        result = calculate_fd_with_topups(100_000, 8.0, 1, [50_000])
+        expected = 150_000 * (1 + 0.08 / 4) ** 4
+        assert abs(result.maturity_amount - expected) < 0.01
+
+    def test_compounding_respected_with_topups(self):
+        r_q = calculate_fd_with_topups(100_000, 7.0, 2, [10_000, 0], CompoundingFrequency.QUARTERLY)
+        r_y = calculate_fd_with_topups(100_000, 7.0, 2, [10_000, 0], CompoundingFrequency.YEARLY)
+        assert r_q.maturity_amount > r_y.maturity_amount
 
 
 class TestFormatInr:

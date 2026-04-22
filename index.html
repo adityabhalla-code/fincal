@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FD Calc" />
+  <title>FD Calculator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #1a73e8;
+      --primary-dark: #1558b0;
+      --accent: #1e8e3e;
+      --warning: #e67e22;
+      --bg: #f0f4f8;
+      --card: #ffffff;
+      --text: #1a1a2e;
+      --muted: #5f6368;
+      --border: #dadce0;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+      color: white;
+      padding: 20px 16px 18px;
+      padding-top: calc(20px + env(safe-area-inset-top));
+      text-align: center;
+    }
+    header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.3px; }
+    header p  { font-size: 0.82rem; opacity: 0.82; margin-top: 4px; }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .tab {
+      flex: 1;
+      padding: 13px 8px;
+      text-align: center;
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    /* ── Panels ── */
+    .panel { display: none; padding: 16px; }
+    .panel.active { display: block; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 14px;
+    }
+
+    /* ── Form fields ── */
+    .field { margin-bottom: 14px; }
+    .field:last-child { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type=number], select {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 1rem;
+      color: var(--text);
+      background: white;
+      -webkit-appearance: none;
+      appearance: none;
+      transition: border-color 0.18s;
+    }
+    input[type=number]:focus, select:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .input-wrap { position: relative; }
+    .input-wrap .prefix {
+      position: absolute; left: 12px; top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted); font-size: 0.95rem; pointer-events: none;
+    }
+    .input-wrap .suffix {
+      position: absolute; right: 12px; top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted); font-size: 0.82rem; pointer-events: none;
+      white-space: nowrap;
+    }
+    .input-wrap.has-prefix input  { padding-left: 26px; }
+    .input-wrap.has-suffix input  { padding-right: 60px; }
+    .select-wrap { position: relative; }
+    .select-wrap::after {
+      content: '▾'; position: absolute; right: 13px; top: 50%;
+      transform: translateY(-50%); pointer-events: none; color: var(--muted);
+    }
+
+    /* ── Error ── */
+    .error {
+      color: #c62828; font-size: 0.8rem; margin-top: -8px;
+      margin-bottom: 10px; display: none;
+    }
+    .error.visible { display: block; }
+
+    /* ── Button ── */
+    .btn {
+      width: 100%; padding: 15px;
+      background: var(--primary); color: white;
+      border: none; border-radius: var(--radius);
+      font-size: 1rem; font-weight: 700;
+      cursor: pointer; letter-spacing: 0.2px;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.18s, transform 0.1s;
+    }
+    .btn:active { background: var(--primary-dark); transform: scale(0.98); }
+
+    /* ── Top-up grid ── */
+    .topup-header {
+      display: flex; justify-content: space-between;
+      align-items: baseline; margin-bottom: 14px;
+    }
+    .topup-note { font-size: 0.72rem; color: var(--muted); font-style: italic; }
+    .topup-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .topup-grid .field { margin-bottom: 0; }
+    .topup-grid label { font-size: 0.74rem; }
+    .topup-grid input { font-size: 0.9rem; padding: 10px 10px 10px 24px; }
+    .topup-grid .input-wrap .prefix { left: 9px; font-size: 0.85rem; }
+
+    /* ── Results ── */
+    .results { display: none; margin-top: 14px; }
+    .results.visible { display: block; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .sum-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 14px 12px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .sum-card.full { grid-column: 1 / -1; }
+    .sum-card.hero {
+      background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+      color: white;
+    }
+    .sum-card .s-label {
+      font-size: 0.72rem; font-weight: 600;
+      color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.4px; margin-bottom: 5px;
+    }
+    .sum-card.hero .s-label { color: rgba(255,255,255,0.75); }
+    .sum-card .s-value {
+      font-size: 1.15rem; font-weight: 700; color: var(--text);
+    }
+    .sum-card.hero .s-value { font-size: 1.55rem; color: white; }
+    .sum-card .s-value.green { color: var(--accent); }
+    .sum-card .s-value.orange { color: var(--warning); }
+
+    /* ── Table ── */
+    .table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 -4px;
+    }
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: 0.8rem; min-width: 300px;
+    }
+    thead th {
+      background: #f8fafc; padding: 9px 8px;
+      text-align: right; font-weight: 700;
+      font-size: 0.7rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.3px;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    thead th:first-child { text-align: center; }
+    tbody td {
+      padding: 10px 8px; text-align: right;
+      border-bottom: 1px solid #f1f3f4;
+    }
+    tbody tr:last-child td { border-bottom: none; font-weight: 700; background: #fafbff; }
+    tbody td:first-child { text-align: center; font-weight: 700; color: var(--primary); }
+    .td-topup { color: var(--accent); font-weight: 600; }
+    .td-interest { color: var(--warning); }
+
+    /* ── Install banner ── */
+    #install-banner {
+      display: none;
+      margin: 0 16px 14px;
+      background: #e8f5e9;
+      border: 1px solid #a5d6a7;
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-size: 0.82rem;
+      color: #2e7d32;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>FD Investment Calculator</h1>
+  <p>Fixed Deposit returns, year by year</p>
+</header>
+
+<div class="tabs">
+  <div class="tab active"  onclick="switchTab('std')">Standard FD</div>
+  <div class="tab"         onclick="switchTab('top')">FD with Top-ups</div>
+</div>
+
+<div id="install-banner">
+  Add to Home Screen for offline access — tap <strong>Share → Add to Home Screen</strong>
+</div>
+
+<!-- ═══════════════ STANDARD FD PANEL ═══════════════ -->
+<div class="panel active" id="panel-std">
+
+  <div class="card">
+    <div class="card-title">Investment Details</div>
+
+    <div class="field">
+      <label>Principal Amount</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="s-principal" placeholder="e.g. 100000" min="1" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Annual Interest Rate</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="s-rate" placeholder="e.g. 7.5" min="0.01" step="0.01" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Tenure</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="s-tenure" placeholder="e.g. 5" min="1" max="50" inputmode="numeric" />
+        <span class="suffix">years</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Compounding Frequency</label>
+      <div class="select-wrap">
+        <select id="s-freq">
+          <option value="4" selected>Quarterly (most common)</option>
+          <option value="12">Monthly</option>
+          <option value="2">Half-Yearly</option>
+          <option value="1">Yearly</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="s-error"></div>
+  <button class="btn" onclick="calcStd()">Calculate</button>
+
+  <div class="results" id="s-results">
+    <div class="summary-grid" id="s-summary"></div>
+    <div class="card">
+      <div class="card-title">Year-wise Breakdown</div>
+      <div class="table-wrap"><table id="s-table"></table></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ TOP-UP FD PANEL ═══════════════ -->
+<div class="panel" id="panel-top">
+
+  <div class="card">
+    <div class="card-title">Investment Details</div>
+
+    <div class="field">
+      <label>Principal Amount</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="t-principal" placeholder="e.g. 100000" min="1" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Annual Interest Rate</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="t-rate" placeholder="e.g. 7.5" min="0.01" step="0.01" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Tenure</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="t-tenure" placeholder="e.g. 5" min="1" max="50"
+               inputmode="numeric" oninput="genTopupFields()" />
+        <span class="suffix">years</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Compounding Frequency</label>
+      <div class="select-wrap">
+        <select id="t-freq">
+          <option value="4" selected>Quarterly (most common)</option>
+          <option value="12">Monthly</option>
+          <option value="2">Half-Yearly</option>
+          <option value="1">Yearly</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dynamic top-up inputs -->
+  <div class="card" id="topup-card" style="display:none">
+    <div class="topup-header">
+      <div class="card-title" style="margin-bottom:0">Annual Top-ups</div>
+      <span class="topup-note">Added at start of each year</span>
+    </div>
+    <div class="topup-grid" id="topup-fields"></div>
+  </div>
+
+  <div class="error" id="t-error"></div>
+  <button class="btn" onclick="calcTop()">Calculate</button>
+
+  <div class="results" id="t-results">
+    <div class="summary-grid" id="t-summary"></div>
+    <div class="card">
+      <div class="card-title">Year-wise Breakdown</div>
+      <div class="table-wrap"><table id="t-table"></table></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Utilities ────────────────────────────────────────────────
+  const fmt = n =>
+    '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const $  = id => document.getElementById(id);
+  const fv = id => parseFloat($(id).value) || 0;
+  const iv = id => parseInt($(id).value)  || 0;
+
+  function showErr(id, msg) { $(id).textContent = msg; $(id).classList.add('visible'); }
+  function clearErr(id)     { $(id).classList.remove('visible'); }
+
+  // ── Tab switching ─────────────────────────────────────────────
+  function switchTab(t) {
+    ['std','top'].forEach(x => {
+      $('panel-' + x).classList.toggle('active', x === t);
+    });
+    document.querySelectorAll('.tab').forEach((el, i) =>
+      el.classList.toggle('active', (i === 0 && t === 'std') || (i === 1 && t === 'top'))
+    );
+  }
+
+  // ── Core calculation ──────────────────────────────────────────
+  // topups: array of length `tenure`, amount added at START of each year
+  function calcRows(principal, rate, tenure, n, topups) {
+    const r = rate / 100;
+    let balance = principal;
+    return Array.from({ length: tenure }, (_, i) => {
+      const topup   = topups ? (topups[i] || 0) : 0;
+      const opening = balance + topup;
+      const closing = opening * Math.pow(1 + r / n, n);
+      const result  = { year: i + 1, topup, opening, interest: closing - opening, closing };
+      balance = closing;
+      return result;
+    });
+  }
+
+  // ── Render helpers ────────────────────────────────────────────
+  function renderSummary(containerId, principal, maturity, totalTopups) {
+    const invested = principal + totalTopups;
+    const interest = maturity - invested;
+    $(containerId).innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">Maturity Amount</div>
+        <div class="s-value">${fmt(maturity)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Invested</div>
+        <div class="s-value">${fmt(invested)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Interest Earned</div>
+        <div class="s-value green">${fmt(interest)}</div>
+      </div>
+      ${totalTopups > 0 ? `
+      <div class="sum-card">
+        <div class="s-label">Principal</div>
+        <div class="s-value">${fmt(principal)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Top-ups</div>
+        <div class="s-value orange">${fmt(totalTopups)}</div>
+      </div>` : ''}
+    `;
+  }
+
+  function renderTable(tableId, rows, hasTopup) {
+    const topupTh = hasTopup ? '<th>Top-up</th>' : '';
+    const body = rows.map(r => `
+      <tr>
+        <td>${r.year}</td>
+        ${hasTopup ? `<td class="td-topup">${r.topup > 0 ? '+' + fmt(r.topup) : '—'}</td>` : ''}
+        <td>${fmt(r.opening)}</td>
+        <td class="td-interest">${fmt(r.interest)}</td>
+        <td>${fmt(r.closing)}</td>
+      </tr>`).join('');
+    $(tableId).innerHTML = `
+      <thead><tr>
+        <th>Yr</th>${topupTh}
+        <th>Opening</th><th>Interest</th><th>Closing</th>
+      </tr></thead>
+      <tbody>${body}</tbody>`;
+  }
+
+  function showResults(resultsId) {
+    const el = $(resultsId);
+    el.classList.add('visible');
+    setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  }
+
+  // ── Standard FD ───────────────────────────────────────────────
+  function calcStd() {
+    clearErr('s-error');
+    const p = fv('s-principal'), r = fv('s-rate'),
+          t = iv('s-tenure'),   n = iv('s-freq');
+    if (p <= 0) return showErr('s-error', 'Enter a valid principal amount.');
+    if (r <= 0) return showErr('s-error', 'Enter a valid interest rate.');
+    if (t < 1)  return showErr('s-error', 'Tenure must be at least 1 year.');
+
+    const rows    = calcRows(p, r, t, n, null);
+    const maturity = rows[rows.length - 1].closing;
+    renderSummary('s-summary', p, maturity, 0);
+    renderTable('s-table', rows, false);
+    showResults('s-results');
+  }
+
+  // ── Top-up FD ─────────────────────────────────────────────────
+  function genTopupFields() {
+    const tenure = iv('t-tenure');
+    if (tenure < 1 || tenure > 50) return;
+    const grid = $('topup-fields');
+    // preserve existing values when tenure changes
+    const existing = Array.from(grid.querySelectorAll('input')).map(el => el.value);
+    grid.innerHTML = '';
+    for (let y = 1; y <= tenure; y++) {
+      const div = document.createElement('div');
+      div.className = 'field';
+      div.innerHTML = `
+        <label>Year ${y} Top-up</label>
+        <div class="input-wrap has-prefix">
+          <span class="prefix">₹</span>
+          <input type="number" id="topup-${y}" placeholder="0 (optional)"
+                 min="0" inputmode="decimal" value="${existing[y-1] || ''}" />
+        </div>`;
+      grid.appendChild(div);
+    }
+    $('topup-card').style.display = 'block';
+  }
+
+  function calcTop() {
+    clearErr('t-error');
+    const p = fv('t-principal'), r = fv('t-rate'),
+          t = iv('t-tenure'),   n = iv('t-freq');
+    if (p <= 0) return showErr('t-error', 'Enter a valid principal amount.');
+    if (r <= 0) return showErr('t-error', 'Enter a valid interest rate.');
+    if (t < 1)  return showErr('t-error', 'Tenure must be at least 1 year.');
+
+    const topups = Array.from({ length: t }, (_, i) =>
+      Math.max(0, fv(`topup-${i + 1}`))
+    );
+    const rows       = calcRows(p, r, t, n, topups);
+    const maturity   = rows[rows.length - 1].closing;
+    const totalTopup = topups.reduce((a, b) => a + b, 0);
+    renderSummary('t-summary', p, maturity, totalTopup);
+    renderTable('t-table', rows, true);
+    showResults('t-results');
+  }
+
+  // ── iOS "Add to Home Screen" hint ─────────────────────────────
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.navigator.standalone;
+  if (isIOS && !isStandalone) {
+    $('install-banner').style.display = 'block';
+  }
+</script>
+
+</body>
+</html>

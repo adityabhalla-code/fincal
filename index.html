@@ -414,9 +414,9 @@
     </div>
 
     <div class="field">
-      <label>Expected Annual Return</label>
+      <label>Expected Annual Return <span style="font-weight:400;font-style:italic">(optional)</span></label>
       <div class="input-wrap has-suffix">
-        <input type="number" id="fv-return" placeholder="e.g. 12" min="0.01" step="0.01" inputmode="decimal" />
+        <input type="number" id="fv-return" placeholder="e.g. 12" min="0" step="0.01" inputmode="decimal" />
         <span class="suffix">% p.a.</span>
       </div>
     </div>
@@ -428,6 +428,7 @@
         <span class="suffix">% p.a.</span>
       </div>
     </div>
+    <p style="font-size:0.74rem;color:var(--muted);margin-top:-8px;margin-bottom:4px">Enter return, inflation, or both</p>
 
     <div class="field">
       <label>Tenure</label>
@@ -616,25 +617,28 @@
   }
 
   // ── Future Value ──────────────────────────────────────────────
+  // ret/inf can each be 0; at least one must be > 0
   function calcFVRows(pv, ret, inf, tenureYears, tenureMonths) {
     const r = ret / 100, i = inf / 100;
+    const hasRet = ret > 0, hasInf = inf > 0;
     const rows = [];
-    let nominal = pv;
-    let elapsed = 0;   // cumulative years (float)
+    let nominal = pv, elapsed = 0;
 
     for (let y = 1; y <= tenureYears; y++) {
-      nominal  = nominal * (1 + r);
-      elapsed  = y;
-      const real = nominal / Math.pow(1 + i, elapsed);
-      rows.push({ label: `Yr ${y}`, nominal, real, growth: nominal - pv });
+      if (hasRet) nominal = nominal * (1 + r);
+      elapsed = y;
+      const real   = hasInf ? nominal / Math.pow(1 + i, elapsed) : nominal;
+      const needed = hasInf ? pv * Math.pow(1 + i, elapsed) : 0;
+      rows.push({ label: `Yr ${y}`, nominal, real, needed, growth: nominal - pv });
     }
 
     if (tenureMonths > 0) {
       const frac = tenureMonths / 12;
-      nominal  = nominal * Math.pow(1 + r, frac);
+      if (hasRet) nominal = nominal * Math.pow(1 + r, frac);
       elapsed += frac;
-      const real = nominal / Math.pow(1 + i, elapsed);
-      rows.push({ label: `+${tenureMonths}m`, nominal, real, growth: nominal - pv });
+      const real   = hasInf ? nominal / Math.pow(1 + i, elapsed) : nominal;
+      const needed = hasInf ? pv * Math.pow(1 + i, elapsed) : 0;
+      rows.push({ label: `+${tenureMonths}m`, nominal, real, needed, growth: nominal - pv });
     }
 
     return rows;
@@ -642,66 +646,90 @@
 
   function calcFV() {
     clearErr('fv-error');
-    const pv      = fv('fv-amount');
-    const ret     = fv('fv-return');
-    const inf     = fv('fv-inflation');       // may be 0 if left blank
-    const years   = iv('fv-years');
-    const months  = iv('fv-months');
+    const pv     = fv('fv-amount');
+    const ret    = fv('fv-return');
+    const inf    = fv('fv-inflation');
+    const years  = iv('fv-years');
+    const months = iv('fv-months');
 
     if (pv  <= 0)                    return showErr('fv-error', 'Enter a valid current amount.');
-    if (ret <= 0)                    return showErr('fv-error', 'Enter a valid return rate.');
+    if (ret === 0 && inf === 0)      return showErr('fv-error', 'Enter at least a return rate or an inflation rate.');
     if (years === 0 && months === 0) return showErr('fv-error', 'Enter a tenure (years and/or months).');
     if (months < 0 || months > 11)  return showErr('fv-error', 'Months must be between 0 and 11.');
 
-    const rows      = calcFVRows(pv, ret, inf, years, months);
-    const last      = rows[rows.length - 1];
-    const nominalFV = last.nominal;
-    const realFV    = last.real;
-    const growth    = nominalFV - pv;
-    const inflLoss  = nominalFV - realFV;
-    const hasInf    = inf > 0;
+    const rows    = calcFVRows(pv, ret, inf, years, months);
+    const last    = rows[rows.length - 1];
+    const hasRet  = ret > 0, hasInf = inf > 0;
+    const inflOnly = !hasRet && hasInf;
 
-    $('fv-summary').innerHTML = `
-      <div class="sum-card hero full">
-        <div class="s-label">Future Value (Nominal)</div>
-        <div class="s-value">${fmt(nominalFV)}</div>
-      </div>
-      ${hasInf ? `
-      <div class="sum-card hero full" style="background:linear-gradient(135deg,#1e8e3e,#0a5c23)">
-        <div class="s-label">Real Value (Today's Purchasing Power)</div>
-        <div class="s-value">${fmt(realFV)}</div>
-      </div>` : ''}
-      <div class="sum-card">
-        <div class="s-label">Current Amount</div>
-        <div class="s-value">${fmt(pv)}</div>
-      </div>
-      <div class="sum-card">
-        <div class="s-label">Total Growth</div>
-        <div class="s-value green">${fmt(growth)}</div>
-      </div>
-      ${hasInf ? `
-      <div class="sum-card full">
-        <div class="s-label">Purchasing Power Lost to Inflation</div>
-        <div class="s-value orange">${fmt(inflLoss)}</div>
-      </div>` : ''}
-    `;
+    const summary = inflOnly
+      ? /* ── Inflation-only mode ── */ `
+          <div class="sum-card hero full" style="background:linear-gradient(135deg,#b71c1c,#7f0000)">
+            <div class="s-label">Amount Needed to Match Today's Purchasing Power</div>
+            <div class="s-value">${fmt(last.needed)}</div>
+          </div>
+          <div class="sum-card">
+            <div class="s-label">Current Amount</div>
+            <div class="s-value">${fmt(pv)}</div>
+          </div>
+          <div class="sum-card">
+            <div class="s-label">Extra Needed</div>
+            <div class="s-value orange">${fmt(last.needed - pv)}</div>
+          </div>
+          <div class="sum-card full">
+            <div class="s-label">Real Worth of Your Money (Purchasing Power)</div>
+            <div class="s-value green">${fmt(last.real)}</div>
+          </div>`
+      : /* ── Return (+ optional inflation) mode ── */ `
+          <div class="sum-card hero full">
+            <div class="s-label">Future Value (Nominal)</div>
+            <div class="s-value">${fmt(last.nominal)}</div>
+          </div>
+          ${hasInf ? `
+          <div class="sum-card hero full" style="background:linear-gradient(135deg,#1e8e3e,#0a5c23)">
+            <div class="s-label">Real Value (Today's Purchasing Power)</div>
+            <div class="s-value">${fmt(last.real)}</div>
+          </div>` : ''}
+          <div class="sum-card">
+            <div class="s-label">Current Amount</div>
+            <div class="s-value">${fmt(pv)}</div>
+          </div>
+          <div class="sum-card">
+            <div class="s-label">Total Growth</div>
+            <div class="s-value green">${fmt(last.growth)}</div>
+          </div>
+          ${hasInf ? `
+          <div class="sum-card full">
+            <div class="s-label">Purchasing Power Lost to Inflation</div>
+            <div class="s-value orange">${fmt(last.nominal - last.real)}</div>
+          </div>` : ''}`;
 
-    // Table
-    const hasInflCol = hasInf;
-    const body = rows.map(r => `
-      <tr>
-        <td>${r.label}</td>
-        <td>${fmt(r.nominal)}</td>
-        ${hasInflCol ? `<td class="td-interest">${fmt(r.real)}</td>` : ''}
-        <td class="td-topup">+${fmt(r.growth)}</td>
-      </tr>`).join('');
+    $('fv-summary').innerHTML = summary;
+
+    // Table columns depend on mode
+    const body = rows.map(r => {
+      if (inflOnly) return `
+        <tr>
+          <td>${r.label}</td>
+          <td class="td-interest">${fmt(r.needed)}</td>
+          <td>${fmt(r.real)}</td>
+          <td class="td-topup">+${fmt(r.needed - pv)}</td>
+        </tr>`;
+      return `
+        <tr>
+          <td>${r.label}</td>
+          <td>${fmt(r.nominal)}</td>
+          ${hasInf ? `<td class="td-interest">${fmt(r.real)}</td>` : ''}
+          <td class="td-topup">+${fmt(r.growth)}</td>
+        </tr>`;
+    }).join('');
 
     $('fv-table').innerHTML = `
       <thead><tr>
         <th>Period</th>
-        <th>Nominal Value</th>
-        ${hasInflCol ? '<th>Real Value</th>' : ''}
-        <th>Total Growth</th>
+        ${inflOnly
+          ? '<th>Amount Needed</th><th>Real Worth</th><th>Extra Needed</th>'
+          : `<th>Nominal Value</th>${hasInf ? '<th>Real Value</th>' : ''}<th>Growth</th>`}
       </tr></thead>
       <tbody>${body}</tbody>`;
 

@@ -120,9 +120,10 @@ def calculate_fd_with_topups(
 
 @dataclass
 class FVYearResult:
-    label: str           # "Yr 1", "+6m", etc.
-    nominal_value: float
-    real_value: float    # inflation-adjusted in today's money
+    label: str              # "Yr 1", "+6m", etc.
+    nominal_value: float    # investment value (grows with return rate)
+    real_value: float       # purchasing power in today's money
+    amount_needed: float    # PV × (1+inf)^elapsed — needed to match today's purchasing power
 
 
 @dataclass
@@ -134,7 +135,8 @@ class FVResult:
     tenure_months: int
     nominal_fv: float
     real_fv: float
-    total_growth: float       # nominal_fv - present_value
+    amount_needed_fv: float   # PV × (1+inf)^total_tenure (inflation-only mode hero metric)
+    total_growth: float
     inflation_loss: float     # nominal_fv - real_fv
     year_wise: list[FVYearResult]
 
@@ -147,42 +149,51 @@ def calculate_future_value(
     tenure_months: int = 0,
 ) -> FVResult:
     """
-    Future value with optional inflation adjustment.
+    Future value supporting three modes:
+      - Return only  (inflation_percent=0): shows nominal growth.
+      - Inflation only (annual_return_percent=0): shows purchasing-power erosion
+        and the amount needed to maintain today's buying power.
+      - Both: shows nominal FV vs real (inflation-adjusted) value.
 
-    Nominal FV compounds annually: value *= (1 + r) per year.
-    Real FV = nominal / (1 + i)^elapsed_years (purchasing power in today's money).
-    Partial months use fractional exponent: (1 + r)^(months/12).
+    At least one of annual_return_percent or inflation_percent must be > 0.
     """
     if present_value <= 0:
         raise ValueError("Present value must be positive")
-    if annual_return_percent <= 0:
-        raise ValueError("Return rate must be positive")
+    if annual_return_percent < 0:
+        raise ValueError("Return rate must be non-negative")
     if inflation_percent < 0:
         raise ValueError("Inflation rate must be non-negative")
+    if annual_return_percent == 0 and inflation_percent == 0:
+        raise ValueError("Enter at least a return rate or an inflation rate")
     if not (0 <= tenure_months <= 11):
         raise ValueError("tenure_months must be between 0 and 11")
     if tenure_years == 0 and tenure_months == 0:
         raise ValueError("Tenure must be at least 1 month")
 
-    r = annual_return_percent / 100
+    r   = annual_return_percent / 100
     inf = inflation_percent / 100
     year_wise = []
-    nominal = present_value
-    elapsed = 0.0
+    nominal   = present_value
+    elapsed   = 0.0
 
     for y in range(1, tenure_years + 1):
-        nominal = nominal * (1 + r)
+        if r > 0:
+            nominal = nominal * (1 + r)
         elapsed = float(y)
-        real = nominal / (1 + inf) ** elapsed
-        year_wise.append(FVYearResult(f"Yr {y}", nominal, real))
+        real   = nominal / (1 + inf) ** elapsed if inf > 0 else nominal
+        needed = present_value * (1 + inf) ** elapsed if inf > 0 else 0.0
+        year_wise.append(FVYearResult(f"Yr {y}", nominal, real, needed))
 
     if tenure_months > 0:
         frac = tenure_months / 12
-        nominal = nominal * (1 + r) ** frac
+        if r > 0:
+            nominal = nominal * (1 + r) ** frac
         elapsed += frac
-        real = nominal / (1 + inf) ** elapsed
-        year_wise.append(FVYearResult(f"+{tenure_months}m", nominal, real))
+        real   = nominal / (1 + inf) ** elapsed if inf > 0 else nominal
+        needed = present_value * (1 + inf) ** elapsed if inf > 0 else 0.0
+        year_wise.append(FVYearResult(f"+{tenure_months}m", nominal, real, needed))
 
+    last = year_wise[-1]
     return FVResult(
         present_value=present_value,
         return_rate=annual_return_percent,
@@ -190,9 +201,10 @@ def calculate_future_value(
         tenure_years=tenure_years,
         tenure_months=tenure_months,
         nominal_fv=nominal,
-        real_fv=year_wise[-1].real_value,
+        real_fv=last.real_value,
+        amount_needed_fv=last.amount_needed,
         total_growth=nominal - present_value,
-        inflation_loss=nominal - year_wise[-1].real_value,
+        inflation_loss=nominal - last.real_value,
         year_wise=year_wise,
     )
 

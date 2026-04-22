@@ -304,7 +304,11 @@ class TestFutureValue:
 
     def test_invalid_return_raises(self):
         with pytest.raises(ValueError):
-            calculate_future_value(100_000, 0, 5)
+            calculate_future_value(100_000, -1, 5)
+
+    def test_zero_return_zero_inflation_raises(self):
+        with pytest.raises(ValueError):
+            calculate_future_value(100_000, 0, 5, inflation_percent=0)
 
     def test_negative_inflation_raises(self):
         with pytest.raises(ValueError):
@@ -317,6 +321,55 @@ class TestFutureValue:
     def test_invalid_months_raises(self):
         with pytest.raises(ValueError):
             calculate_future_value(100_000, 10.0, 1, tenure_months=12)
+
+    def test_amount_needed_stored_per_row(self):
+        result = calculate_future_value(100_000, 10.0, 3, inflation_percent=6.0)
+        for i, yr in enumerate(result.year_wise, 1):
+            expected = 100_000 * (1.06 ** i)
+            assert abs(yr.amount_needed - expected) < 0.01
+
+    def test_amount_needed_zero_when_no_inflation(self):
+        result = calculate_future_value(100_000, 10.0, 3)
+        assert all(yr.amount_needed == 0.0 for yr in result.year_wise)
+
+
+class TestFutureValueInflationOnly:
+    def test_inflation_only_nominal_unchanged(self):
+        # With no return, nominal stays at PV every year
+        result = calculate_future_value(100_000, 0, 3, inflation_percent=6.0)
+        for yr in result.year_wise:
+            assert abs(yr.nominal_value - 100_000) < 0.001
+
+    def test_inflation_only_amount_needed(self):
+        # Amount needed after 5 years at 6% inflation = 100000 * 1.06^5
+        result = calculate_future_value(100_000, 0, 5, inflation_percent=6.0)
+        expected = 100_000 * (1.06 ** 5)
+        assert abs(result.amount_needed_fv - expected) < 0.01
+
+    def test_inflation_only_real_value(self):
+        # Real value = PV / (1+inf)^t (purchasing power of original amount)
+        result = calculate_future_value(100_000, 0, 5, inflation_percent=6.0)
+        expected_real = 100_000 / (1.06 ** 5)
+        assert abs(result.real_fv - expected_real) < 0.01
+
+    def test_inflation_only_year_wise_real_decreases(self):
+        result = calculate_future_value(100_000, 0, 5, inflation_percent=6.0)
+        for i in range(1, len(result.year_wise)):
+            assert result.year_wise[i].real_value < result.year_wise[i-1].real_value
+
+    def test_inflation_only_with_months(self):
+        result = calculate_future_value(100_000, 0, 1, inflation_percent=6.0, tenure_months=6)
+        assert len(result.year_wise) == 2
+        assert abs(result.year_wise[-1].nominal_value - 100_000) < 0.001
+
+    def test_zero_return_is_valid_with_inflation(self):
+        result = calculate_future_value(100_000, 0, 3, inflation_percent=6.0)
+        assert isinstance(result, FVResult)
+
+    def test_both_return_and_inflation(self):
+        result = calculate_future_value(100_000, 12.0, 5, inflation_percent=6.0)
+        assert result.nominal_fv > result.real_fv
+        assert result.real_fv > 100_000   # still grew in real terms (12% > 6%)
 
 
 class TestFormatInr:

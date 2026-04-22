@@ -4,9 +4,11 @@ import pytest
 from fd_calculator import (
     CompoundingFrequency,
     FDResult,
+    FVResult,
     YearResult,
     calculate_fd,
     calculate_fd_with_topups,
+    calculate_future_value,
     format_inr,
 )
 
@@ -228,6 +230,93 @@ class TestMonthsTenure:
         yr2_close    = result.year_wise[1].closing_balance
         partial_open = result.year_wise[2].opening_balance
         assert abs(yr2_close - partial_open) < 0.001
+
+
+class TestFutureValue:
+    def test_basic_no_inflation(self):
+        result = calculate_future_value(100_000, 10.0, 5)
+        expected = 100_000 * (1.10 ** 5)
+        assert abs(result.nominal_fv - expected) < 0.01
+
+    def test_single_year(self):
+        result = calculate_future_value(100_000, 8.0, 1)
+        assert abs(result.nominal_fv - 108_000) < 0.01
+
+    def test_no_inflation_real_equals_nominal(self):
+        result = calculate_future_value(100_000, 10.0, 5, inflation_percent=0)
+        assert abs(result.real_fv - result.nominal_fv) < 0.001
+
+    def test_inflation_reduces_real_value(self):
+        result = calculate_future_value(100_000, 10.0, 10, inflation_percent=6.0)
+        assert result.real_fv < result.nominal_fv
+
+    def test_real_fv_formula(self):
+        # real = nominal / (1 + inf)^years
+        result = calculate_future_value(100_000, 10.0, 5, inflation_percent=6.0)
+        nominal  = 100_000 * (1.10 ** 5)
+        expected_real = nominal / (1.06 ** 5)
+        assert abs(result.real_fv - expected_real) < 0.01
+
+    def test_total_growth(self):
+        result = calculate_future_value(100_000, 10.0, 5)
+        assert abs(result.total_growth - (result.nominal_fv - 100_000)) < 0.001
+
+    def test_inflation_loss(self):
+        result = calculate_future_value(100_000, 10.0, 5, inflation_percent=6.0)
+        assert abs(result.inflation_loss - (result.nominal_fv - result.real_fv)) < 0.001
+
+    def test_year_wise_length_no_months(self):
+        result = calculate_future_value(100_000, 10.0, 5)
+        assert len(result.year_wise) == 5
+
+    def test_year_wise_length_with_months(self):
+        result = calculate_future_value(100_000, 10.0, 3, tenure_months=6)
+        assert len(result.year_wise) == 4  # 3 full years + 1 partial row
+
+    def test_year_wise_labels(self):
+        result = calculate_future_value(100_000, 10.0, 2, tenure_months=3)
+        assert result.year_wise[0].label == "Yr 1"
+        assert result.year_wise[1].label == "Yr 2"
+        assert result.year_wise[2].label == "+3m"
+
+    def test_partial_months_nominal(self):
+        # 0 years 6 months: nominal = pv * (1.10)^0.5
+        result = calculate_future_value(100_000, 10.0, 0, tenure_months=6)
+        expected = 100_000 * (1.10 ** 0.5)
+        assert abs(result.nominal_fv - expected) < 0.01
+
+    def test_nominal_increases_each_year(self):
+        result = calculate_future_value(100_000, 10.0, 5)
+        for i in range(1, len(result.year_wise)):
+            assert result.year_wise[i].nominal_value > result.year_wise[i-1].nominal_value
+
+    def test_result_fields_stored(self):
+        result = calculate_future_value(100_000, 10.0, 5, inflation_percent=6.0, tenure_months=3)
+        assert result.present_value == 100_000
+        assert result.return_rate == 10.0
+        assert result.inflation_rate == 6.0
+        assert result.tenure_years == 5
+        assert result.tenure_months == 3
+
+    def test_invalid_pv_raises(self):
+        with pytest.raises(ValueError):
+            calculate_future_value(0, 10.0, 5)
+
+    def test_invalid_return_raises(self):
+        with pytest.raises(ValueError):
+            calculate_future_value(100_000, 0, 5)
+
+    def test_negative_inflation_raises(self):
+        with pytest.raises(ValueError):
+            calculate_future_value(100_000, 10.0, 5, inflation_percent=-1)
+
+    def test_zero_tenure_raises(self):
+        with pytest.raises(ValueError):
+            calculate_future_value(100_000, 10.0, 0, tenure_months=0)
+
+    def test_invalid_months_raises(self):
+        with pytest.raises(ValueError):
+            calculate_future_value(100_000, 10.0, 1, tenure_months=12)
 
 
 class TestFormatInr:

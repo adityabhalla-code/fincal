@@ -54,9 +54,9 @@
     }
     .tab {
       flex: 1;
-      padding: 13px 8px;
+      padding: 12px 4px;
       text-align: center;
-      font-size: 0.84rem;
+      font-size: 0.76rem;
       font-weight: 600;
       color: var(--muted);
       cursor: pointer;
@@ -259,13 +259,14 @@
 <body>
 
 <header>
-  <h1>FD Investment Calculator</h1>
-  <p>Fixed Deposit returns, year by year</p>
+  <h1>Finance Calculator</h1>
+  <p>FD returns · Future value of money</p>
 </header>
 
 <div class="tabs">
-  <div class="tab active"  onclick="switchTab('std')">Standard FD</div>
-  <div class="tab"         onclick="switchTab('top')">FD with Top-ups</div>
+  <div class="tab active" onclick="switchTab('std')">Standard FD</div>
+  <div class="tab"        onclick="switchTab('top')">FD + Top-ups</div>
+  <div class="tab"        onclick="switchTab('fv')">Future Value</div>
 </div>
 
 <div id="install-banner">
@@ -398,6 +399,63 @@
   </div>
 </div>
 
+<!-- ═══════════════ FUTURE VALUE PANEL ═══════════════ -->
+<div class="panel" id="panel-fv">
+
+  <div class="card">
+    <div class="card-title">Investment Details</div>
+
+    <div class="field">
+      <label>Current Amount</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="fv-amount" placeholder="e.g. 100000" min="1" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Expected Annual Return</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="fv-return" placeholder="e.g. 12" min="0.01" step="0.01" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Annual Inflation Rate <span style="font-weight:400;font-style:italic">(optional)</span></label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="fv-inflation" placeholder="e.g. 6" min="0" step="0.1" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Tenure</label>
+      <div class="tenure-grid">
+        <div class="input-wrap has-suffix">
+          <input type="number" id="fv-years" placeholder="0" min="0" max="50" inputmode="numeric" />
+          <span class="suffix">yr</span>
+        </div>
+        <div class="input-wrap has-suffix">
+          <input type="number" id="fv-months" placeholder="0" min="0" max="11" inputmode="numeric" />
+          <span class="suffix">mo</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="fv-error"></div>
+  <button class="btn" onclick="calcFV()">Calculate</button>
+
+  <div class="results" id="fv-results">
+    <div class="summary-grid" id="fv-summary"></div>
+    <div class="card">
+      <div class="card-title">Year-wise Growth</div>
+      <div class="table-wrap"><table id="fv-table"></table></div>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Utilities ────────────────────────────────────────────────
   const fmt = n =>
@@ -411,13 +469,12 @@
   function clearErr(id)     { $(id).classList.remove('visible'); }
 
   // ── Tab switching ─────────────────────────────────────────────
+  const TABS = ['std', 'top', 'fv'];
   function switchTab(t) {
-    ['std','top'].forEach(x => {
+    TABS.forEach((x, i) => {
       $('panel-' + x).classList.toggle('active', x === t);
+      document.querySelectorAll('.tab')[i].classList.toggle('active', x === t);
     });
-    document.querySelectorAll('.tab').forEach((el, i) =>
-      el.classList.toggle('active', (i === 0 && t === 'std') || (i === 1 && t === 'top'))
-    );
   }
 
   // ── Core calculation ──────────────────────────────────────────
@@ -556,6 +613,99 @@
     renderSummary('t-summary', p, maturity, totalTopup);
     renderTable('t-table', rows, true);
     showResults('t-results');
+  }
+
+  // ── Future Value ──────────────────────────────────────────────
+  function calcFVRows(pv, ret, inf, tenureYears, tenureMonths) {
+    const r = ret / 100, i = inf / 100;
+    const rows = [];
+    let nominal = pv;
+    let elapsed = 0;   // cumulative years (float)
+
+    for (let y = 1; y <= tenureYears; y++) {
+      nominal  = nominal * (1 + r);
+      elapsed  = y;
+      const real = nominal / Math.pow(1 + i, elapsed);
+      rows.push({ label: `Yr ${y}`, nominal, real, growth: nominal - pv });
+    }
+
+    if (tenureMonths > 0) {
+      const frac = tenureMonths / 12;
+      nominal  = nominal * Math.pow(1 + r, frac);
+      elapsed += frac;
+      const real = nominal / Math.pow(1 + i, elapsed);
+      rows.push({ label: `+${tenureMonths}m`, nominal, real, growth: nominal - pv });
+    }
+
+    return rows;
+  }
+
+  function calcFV() {
+    clearErr('fv-error');
+    const pv      = fv('fv-amount');
+    const ret     = fv('fv-return');
+    const inf     = fv('fv-inflation');       // may be 0 if left blank
+    const years   = iv('fv-years');
+    const months  = iv('fv-months');
+
+    if (pv  <= 0)                    return showErr('fv-error', 'Enter a valid current amount.');
+    if (ret <= 0)                    return showErr('fv-error', 'Enter a valid return rate.');
+    if (years === 0 && months === 0) return showErr('fv-error', 'Enter a tenure (years and/or months).');
+    if (months < 0 || months > 11)  return showErr('fv-error', 'Months must be between 0 and 11.');
+
+    const rows      = calcFVRows(pv, ret, inf, years, months);
+    const last      = rows[rows.length - 1];
+    const nominalFV = last.nominal;
+    const realFV    = last.real;
+    const growth    = nominalFV - pv;
+    const inflLoss  = nominalFV - realFV;
+    const hasInf    = inf > 0;
+
+    $('fv-summary').innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">Future Value (Nominal)</div>
+        <div class="s-value">${fmt(nominalFV)}</div>
+      </div>
+      ${hasInf ? `
+      <div class="sum-card hero full" style="background:linear-gradient(135deg,#1e8e3e,#0a5c23)">
+        <div class="s-label">Real Value (Today's Purchasing Power)</div>
+        <div class="s-value">${fmt(realFV)}</div>
+      </div>` : ''}
+      <div class="sum-card">
+        <div class="s-label">Current Amount</div>
+        <div class="s-value">${fmt(pv)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Growth</div>
+        <div class="s-value green">${fmt(growth)}</div>
+      </div>
+      ${hasInf ? `
+      <div class="sum-card full">
+        <div class="s-label">Purchasing Power Lost to Inflation</div>
+        <div class="s-value orange">${fmt(inflLoss)}</div>
+      </div>` : ''}
+    `;
+
+    // Table
+    const hasInflCol = hasInf;
+    const body = rows.map(r => `
+      <tr>
+        <td>${r.label}</td>
+        <td>${fmt(r.nominal)}</td>
+        ${hasInflCol ? `<td class="td-interest">${fmt(r.real)}</td>` : ''}
+        <td class="td-topup">+${fmt(r.growth)}</td>
+      </tr>`).join('');
+
+    $('fv-table').innerHTML = `
+      <thead><tr>
+        <th>Period</th>
+        <th>Nominal Value</th>
+        ${hasInflCol ? '<th>Real Value</th>' : ''}
+        <th>Total Growth</th>
+      </tr></thead>
+      <tbody>${body}</tbody>`;
+
+    showResults('fv-results');
   }
 
   // ── iOS "Add to Home Screen" hint ─────────────────────────────

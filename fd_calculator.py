@@ -209,6 +209,155 @@ def calculate_future_value(
     )
 
 
+@dataclass
+class OptionsResult:
+    option_type: str        # 'call' or 'put'
+    current_price: float
+    strike_price: float
+    premium: float
+    intrinsic_value: float
+    extrinsic_value: float  # time value = max(0, premium - intrinsic)
+    breakeven: float
+    moneyness: str          # 'ITM', 'ATM', 'OTM'
+
+
+def calculate_options_value(
+    option_type: str,
+    current_price: float,
+    strike_price: float,
+    premium: float,
+) -> OptionsResult:
+    """
+    Intrinsic value  = max(0, S-K) for call, max(0, K-S) for put.
+    Extrinsic value  = max(0, premium - intrinsic)  (time value).
+    Breakeven        = K + premium (call) or K - premium (put).
+    """
+    if option_type not in ('call', 'put'):
+        raise ValueError("option_type must be 'call' or 'put'")
+    if current_price <= 0:
+        raise ValueError("Current price must be positive")
+    if strike_price <= 0:
+        raise ValueError("Strike price must be positive")
+    if premium <= 0:
+        raise ValueError("Premium must be positive")
+
+    is_call = option_type == 'call'
+    intrinsic  = max(0.0, current_price - strike_price if is_call else strike_price - current_price)
+    extrinsic  = max(0.0, premium - intrinsic)
+    breakeven  = strike_price + premium if is_call else strike_price - premium
+
+    diff_pct = abs(current_price - strike_price) / strike_price * 100
+    if diff_pct < 0.5:
+        moneyness = 'ATM'
+    elif (is_call and current_price > strike_price) or (not is_call and current_price < strike_price):
+        moneyness = 'ITM'
+    else:
+        moneyness = 'OTM'
+
+    return OptionsResult(
+        option_type=option_type,
+        current_price=current_price,
+        strike_price=strike_price,
+        premium=premium,
+        intrinsic_value=intrinsic,
+        extrinsic_value=extrinsic,
+        breakeven=breakeven,
+        moneyness=moneyness,
+    )
+
+
+@dataclass
+class DCFYearResult:
+    year: int
+    projected_cf: float
+    discount_factor: float
+    present_value: float
+
+
+@dataclass
+class DCFResult:
+    initial_cf: float
+    growth_rate: float
+    terminal_growth_rate: float
+    discount_rate: float
+    projection_years: int
+    pv_cash_flows: float
+    terminal_value: float
+    pv_terminal_value: float
+    intrinsic_value: float
+    current_price: float        # 0 if not provided
+    margin_of_safety_pct: float # positive = undervalued, None if no price given
+    year_wise: list[DCFYearResult]
+
+
+def calculate_dcf(
+    initial_cash_flow: float,
+    growth_rate_percent: float,
+    terminal_growth_rate_percent: float,
+    discount_rate_percent: float,
+    projection_years: int = 10,
+    current_price: float = 0.0,
+) -> DCFResult:
+    """
+    Discounted Cash Flow valuation.
+
+    Projects cash flows for `projection_years` at `growth_rate_percent`,
+    computes terminal value using Gordon Growth Model, discounts everything
+    at `discount_rate_percent`. Intrinsic value = PV(CFs) + PV(TV).
+    Margin of Safety = (intrinsic - market_price) / intrinsic * 100.
+    """
+    if initial_cash_flow <= 0:
+        raise ValueError("Initial cash flow must be positive")
+    if growth_rate_percent <= 0:
+        raise ValueError("Growth rate must be positive")
+    if discount_rate_percent <= 0:
+        raise ValueError("Discount rate must be positive")
+    if projection_years < 1:
+        raise ValueError("Projection years must be at least 1")
+    if discount_rate_percent <= terminal_growth_rate_percent:
+        raise ValueError("Discount rate must be greater than terminal growth rate")
+    if terminal_growth_rate_percent < 0:
+        raise ValueError("Terminal growth rate must be non-negative")
+    if current_price < 0:
+        raise ValueError("Current price must be non-negative")
+
+    r   = discount_rate_percent / 100
+    g   = growth_rate_percent / 100
+    gt  = terminal_growth_rate_percent / 100
+
+    year_wise   = []
+    cf          = initial_cash_flow
+    total_pv_cf = 0.0
+
+    for y in range(1, projection_years + 1):
+        cf  = cf * (1 + g)
+        df  = 1 / (1 + r) ** y
+        pv  = cf * df
+        total_pv_cf += pv
+        year_wise.append(DCFYearResult(y, cf, df, pv))
+
+    terminal_value    = cf * (1 + gt) / (r - gt)
+    pv_terminal       = terminal_value / (1 + r) ** projection_years
+    intrinsic_value   = total_pv_cf + pv_terminal
+
+    mos = (intrinsic_value - current_price) / intrinsic_value * 100 if current_price > 0 else 0.0
+
+    return DCFResult(
+        initial_cf=initial_cash_flow,
+        growth_rate=growth_rate_percent,
+        terminal_growth_rate=terminal_growth_rate_percent,
+        discount_rate=discount_rate_percent,
+        projection_years=projection_years,
+        pv_cash_flows=total_pv_cf,
+        terminal_value=terminal_value,
+        pv_terminal_value=pv_terminal,
+        intrinsic_value=intrinsic_value,
+        current_price=current_price,
+        margin_of_safety_pct=mos,
+        year_wise=year_wise,
+    )
+
+
 def format_inr(amount: float) -> str:
     return f"₹{amount:,.2f}"
 

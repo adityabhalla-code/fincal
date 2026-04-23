@@ -51,16 +51,21 @@
       top: 0;
       z-index: 100;
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    .tabs::-webkit-scrollbar { display: none; }
     .tab {
-      flex: 1;
-      padding: 12px 4px;
+      flex: 0 0 auto;
+      padding: 12px 14px;
       text-align: center;
       font-size: 0.76rem;
       font-weight: 600;
       color: var(--muted);
       cursor: pointer;
       border-bottom: 3px solid transparent;
+      white-space: nowrap;
       transition: color 0.2s, border-color 0.2s;
       user-select: none;
       -webkit-tap-highlight-color: transparent;
@@ -242,6 +247,27 @@
       gap: 10px;
     }
 
+    /* ── Option type toggle buttons ── */
+    .opt-type-btn {
+      padding: 12px; border-radius: 8px; font-size: 0.95rem;
+      font-weight: 700; cursor: pointer; border: 1.5px solid var(--border);
+      background: white; color: var(--muted);
+      -webkit-tap-highlight-color: transparent;
+      transition: all 0.18s;
+    }
+    .opt-type-btn.active {
+      background: var(--primary); color: white; border-color: var(--primary);
+    }
+
+    /* ── Moneyness badge ── */
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.3px;
+    }
+    .badge-itm  { background: #e8f5e9; color: #1e8e3e; }
+    .badge-atm  { background: #fff8e1; color: #f9a825; }
+    .badge-otm  { background: #fce4ec; color: #c62828; }
+
     /* ── Install banner ── */
     #install-banner {
       display: none;
@@ -267,6 +293,8 @@
   <div class="tab active" onclick="switchTab('std')">Standard FD</div>
   <div class="tab"        onclick="switchTab('top')">FD + Top-ups</div>
   <div class="tab"        onclick="switchTab('fv')">Future Value</div>
+  <div class="tab"        onclick="switchTab('opt')">Options Value</div>
+  <div class="tab"        onclick="switchTab('dcf')">Stock DCF</div>
 </div>
 
 <div id="install-banner">
@@ -457,6 +485,120 @@
   </div>
 </div>
 
+<!-- ═══════════════ OPTIONS VALUE PANEL ═══════════════ -->
+<div class="panel" id="panel-opt">
+
+  <div class="card">
+    <div class="card-title">Option Details</div>
+
+    <div class="field">
+      <label>Option Type</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button class="opt-type-btn active" id="btn-call" onclick="setOptType('call')">Call</button>
+        <button class="opt-type-btn"        id="btn-put"  onclick="setOptType('put')">Put</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Current Market Price</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="opt-price" placeholder="e.g. 1500" min="0.01" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Strike Price</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="opt-strike" placeholder="e.g. 1450" min="0.01" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Option Premium (Market Price of Option)</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="opt-premium" placeholder="e.g. 80" min="0.01" inputmode="decimal" />
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="opt-error"></div>
+  <button class="btn" onclick="calcOpt()">Calculate</button>
+
+  <div class="results" id="opt-results">
+    <div class="summary-grid" id="opt-summary"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ STOCK DCF PANEL ═══════════════ -->
+<div class="panel" id="panel-dcf">
+
+  <div class="card">
+    <div class="card-title">Company Financials</div>
+
+    <div class="field">
+      <label>Initial Cash Flow / EPS (per share)</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="dcf-cf" placeholder="e.g. 50" min="0.01" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Expected Growth Rate (near-term)</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="dcf-growth" placeholder="e.g. 15" min="0.01" step="0.1" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Terminal Growth Rate (long-term)</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="dcf-tgrowth" placeholder="e.g. 4" min="0" step="0.1" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Discount Rate (WACC / Required Return)</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="dcf-rate" placeholder="e.g. 12" min="0.01" step="0.1" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Projection Years</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="dcf-years" placeholder="e.g. 10" min="1" max="30" inputmode="numeric" />
+        <span class="suffix">years</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Current Market Price <span style="font-weight:400;font-style:italic">(optional — for margin of safety)</span></label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="dcf-mktprice" placeholder="e.g. 1200" min="0" inputmode="decimal" />
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="dcf-error"></div>
+  <button class="btn" onclick="calcDCF()">Calculate Intrinsic Value</button>
+
+  <div class="results" id="dcf-results">
+    <div class="summary-grid" id="dcf-summary"></div>
+    <div class="card">
+      <div class="card-title">Projected Cash Flows</div>
+      <div class="table-wrap"><table id="dcf-table"></table></div>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Utilities ────────────────────────────────────────────────
   const fmt = n =>
@@ -470,7 +612,7 @@
   function clearErr(id)     { $(id).classList.remove('visible'); }
 
   // ── Tab switching ─────────────────────────────────────────────
-  const TABS = ['std', 'top', 'fv'];
+  const TABS = ['std', 'top', 'fv', 'opt', 'dcf'];
   function switchTab(t) {
     TABS.forEach((x, i) => {
       $('panel-' + x).classList.toggle('active', x === t);
@@ -734,6 +876,156 @@
       <tbody>${body}</tbody>`;
 
     showResults('fv-results');
+  }
+
+  // ── Options Value ─────────────────────────────────────────────
+  let optType = 'call';
+  function setOptType(t) {
+    optType = t;
+    $('btn-call').classList.toggle('active', t === 'call');
+    $('btn-put').classList.toggle('active', t === 'put');
+  }
+
+  function calcOpt() {
+    clearErr('opt-error');
+    const S = fv('opt-price'), K = fv('opt-strike'), P = fv('opt-premium');
+    if (S <= 0) return showErr('opt-error', 'Enter a valid current market price.');
+    if (K <= 0) return showErr('opt-error', 'Enter a valid strike price.');
+    if (P <= 0) return showErr('opt-error', 'Enter a valid option premium.');
+
+    const isCall     = optType === 'call';
+    const intrinsic  = Math.max(0, isCall ? S - K : K - S);
+    const extrinsic  = Math.max(0, P - intrinsic);
+    const breakeven  = isCall ? K + P : K - P;
+    const diff       = Math.abs(S - K) / K * 100;
+    const moneyness  = diff < 0.5
+      ? { label: 'At-the-Money (ATM)', cls: 'badge-atm' }
+      : ((isCall ? S > K : S < K)
+          ? { label: 'In-the-Money (ITM)', cls: 'badge-itm' }
+          : { label: 'Out-of-the-Money (OTM)', cls: 'badge-otm' });
+
+    const underpriced = P < intrinsic;
+
+    $('opt-summary').innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">Intrinsic Value</div>
+        <div class="s-value">${fmt(intrinsic)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Extrinsic (Time) Value</div>
+        <div class="s-value orange">${fmt(extrinsic)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Option Premium</div>
+        <div class="s-value">${fmt(P)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Breakeven Price</div>
+        <div class="s-value">${fmt(breakeven)}</div>
+      </div>
+      <div class="sum-card full" style="text-align:center">
+        <div class="s-label" style="margin-bottom:8px">Moneyness</div>
+        <span class="badge ${moneyness.cls}">${moneyness.label}</span>
+      </div>
+      ${underpriced ? `
+      <div class="sum-card full" style="background:#fff3e0;border:1px solid #ffe0b2">
+        <div class="s-label" style="color:#e65100">Note</div>
+        <div style="font-size:0.82rem;color:#bf360c;margin-top:4px">
+          Premium (${fmt(P)}) is less than intrinsic value (${fmt(intrinsic)}) —
+          the option appears underpriced or deep ITM with little time value.
+        </div>
+      </div>` : ''}
+    `;
+    showResults('opt-results');
+  }
+
+  // ── Stock DCF ─────────────────────────────────────────────────
+  function calcDCF() {
+    clearErr('dcf-error');
+    const cf      = fv('dcf-cf');
+    const g       = fv('dcf-growth');
+    const gt      = fv('dcf-tgrowth');
+    const r       = fv('dcf-rate');
+    const years   = iv('dcf-years');
+    const mktPrice = fv('dcf-mktprice');
+
+    if (cf  <= 0)   return showErr('dcf-error', 'Enter a valid initial cash flow / EPS.');
+    if (g   <= 0)   return showErr('dcf-error', 'Enter a valid expected growth rate.');
+    if (r   <= 0)   return showErr('dcf-error', 'Enter a valid discount rate.');
+    if (years < 1)  return showErr('dcf-error', 'Projection years must be at least 1.');
+    if (r <= gt)    return showErr('dcf-error', 'Discount rate must be greater than terminal growth rate.');
+
+    const rr = r / 100, gr = g / 100, gtr = gt / 100;
+    let cashFlow  = cf;
+    let totalPVCF = 0;
+    const rows    = [];
+
+    for (let y = 1; y <= years; y++) {
+      cashFlow        = cashFlow * (1 + gr);
+      const df        = 1 / Math.pow(1 + rr, y);
+      const pv        = cashFlow * df;
+      totalPVCF      += pv;
+      rows.push({ year: y, cf: cashFlow, df, pv });
+    }
+
+    const terminalValue  = cashFlow * (1 + gtr) / (rr - gtr);
+    const pvTerminal     = terminalValue / Math.pow(1 + rr, years);
+    const intrinsicValue = totalPVCF + pvTerminal;
+    const hasMktPrice    = mktPrice > 0;
+    const mos            = hasMktPrice ? (intrinsicValue - mktPrice) / intrinsicValue * 100 : null;
+    const isUndervalued  = mos !== null && mos > 0;
+
+    $('dcf-summary').innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">Intrinsic Value per Share</div>
+        <div class="s-value">${fmt(intrinsicValue)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">PV of Cash Flows</div>
+        <div class="s-value">${fmt(totalPVCF)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">PV of Terminal Value</div>
+        <div class="s-value">${fmt(pvTerminal)}</div>
+      </div>
+      ${hasMktPrice ? `
+      <div class="sum-card">
+        <div class="s-label">Current Market Price</div>
+        <div class="s-value">${fmt(mktPrice)}</div>
+      </div>
+      <div class="sum-card ${isUndervalued ? '' : ''}"
+           style="background:${isUndervalued ? '#e8f5e9' : '#fce4ec'}">
+        <div class="s-label">Margin of Safety</div>
+        <div class="s-value" style="color:${isUndervalued ? '#1e8e3e' : '#c62828'}">
+          ${mos.toFixed(1)}%
+          <span style="font-size:0.72rem;font-weight:400;display:block">
+            ${isUndervalued ? 'Undervalued ↓' : 'Overvalued ↑'}
+          </span>
+        </div>
+      </div>` : ''}
+    `;
+
+    const body = rows.map(r => `
+      <tr>
+        <td>${r.year}</td>
+        <td>${fmt(r.cf)}</td>
+        <td>${r.df.toFixed(4)}</td>
+        <td class="td-topup">${fmt(r.pv)}</td>
+      </tr>`).join('') + `
+      <tr style="background:#f0f4ff">
+        <td>TV</td>
+        <td>${fmt(terminalValue)}</td>
+        <td>${(1 / Math.pow(1 + rr, years)).toFixed(4)}</td>
+        <td class="td-topup">${fmt(pvTerminal)}</td>
+      </tr>`;
+
+    $('dcf-table').innerHTML = `
+      <thead><tr>
+        <th>Year</th><th>Cash Flow</th><th>Discount Factor</th><th>Present Value</th>
+      </tr></thead>
+      <tbody>${body}</tbody>`;
+
+    showResults('dcf-results');
   }
 
   // ── iOS "Add to Home Screen" hint ─────────────────────────────

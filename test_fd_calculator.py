@@ -3,12 +3,16 @@
 import pytest
 from fd_calculator import (
     CompoundingFrequency,
+    DCFResult,
     FDResult,
     FVResult,
+    OptionsResult,
     YearResult,
+    calculate_dcf,
     calculate_fd,
     calculate_fd_with_topups,
     calculate_future_value,
+    calculate_options_value,
     format_inr,
 )
 
@@ -370,6 +374,156 @@ class TestFutureValueInflationOnly:
         result = calculate_future_value(100_000, 12.0, 5, inflation_percent=6.0)
         assert result.nominal_fv > result.real_fv
         assert result.real_fv > 100_000   # still grew in real terms (12% > 6%)
+
+
+class TestOptionsValue:
+    def test_call_itm_intrinsic(self):
+        r = calculate_options_value('call', 1500, 1400, 120)
+        assert abs(r.intrinsic_value - 100) < 0.001
+
+    def test_call_itm_extrinsic(self):
+        r = calculate_options_value('call', 1500, 1400, 120)
+        assert abs(r.extrinsic_value - 20) < 0.001
+
+    def test_call_otm_intrinsic_zero(self):
+        r = calculate_options_value('call', 1400, 1500, 40)
+        assert r.intrinsic_value == 0.0
+
+    def test_call_otm_extrinsic_equals_premium(self):
+        r = calculate_options_value('call', 1400, 1500, 40)
+        assert abs(r.extrinsic_value - 40) < 0.001
+
+    def test_put_itm_intrinsic(self):
+        r = calculate_options_value('put', 1400, 1500, 120)
+        assert abs(r.intrinsic_value - 100) < 0.001
+
+    def test_put_otm_intrinsic_zero(self):
+        r = calculate_options_value('put', 1500, 1400, 40)
+        assert r.intrinsic_value == 0.0
+
+    def test_call_breakeven(self):
+        r = calculate_options_value('call', 1500, 1400, 80)
+        assert abs(r.breakeven - 1480) < 0.001
+
+    def test_put_breakeven(self):
+        r = calculate_options_value('put', 1400, 1500, 80)
+        assert abs(r.breakeven - 1420) < 0.001
+
+    def test_moneyness_itm_call(self):
+        r = calculate_options_value('call', 1600, 1400, 220)
+        assert r.moneyness == 'ITM'
+
+    def test_moneyness_otm_call(self):
+        r = calculate_options_value('call', 1400, 1600, 40)
+        assert r.moneyness == 'OTM'
+
+    def test_moneyness_atm(self):
+        r = calculate_options_value('call', 1500, 1500, 50)
+        assert r.moneyness == 'ATM'
+
+    def test_moneyness_itm_put(self):
+        r = calculate_options_value('put', 1300, 1500, 220)
+        assert r.moneyness == 'ITM'
+
+    def test_intrinsic_plus_extrinsic_le_premium(self):
+        # intrinsic + extrinsic <= premium (extrinsic = max(0, P - intrinsic))
+        r = calculate_options_value('call', 1500, 1400, 120)
+        assert abs(r.intrinsic_value + r.extrinsic_value - r.premium) < 0.001
+
+    def test_invalid_option_type_raises(self):
+        with pytest.raises(ValueError):
+            calculate_options_value('forward', 1500, 1400, 80)
+
+    def test_invalid_price_raises(self):
+        with pytest.raises(ValueError):
+            calculate_options_value('call', 0, 1400, 80)
+
+    def test_invalid_premium_raises(self):
+        with pytest.raises(ValueError):
+            calculate_options_value('call', 1500, 1400, 0)
+
+
+class TestDCF:
+    def test_basic_intrinsic_value(self):
+        r = calculate_dcf(50, 15, 4, 12, 10)
+        assert isinstance(r, DCFResult)
+        assert r.intrinsic_value > 0
+
+    def test_intrinsic_equals_pv_cf_plus_pv_tv(self):
+        r = calculate_dcf(50, 15, 4, 12, 10)
+        assert abs(r.intrinsic_value - (r.pv_cash_flows + r.pv_terminal_value)) < 0.001
+
+    def test_year_wise_length(self):
+        r = calculate_dcf(50, 15, 4, 12, 10)
+        assert len(r.year_wise) == 10
+
+    def test_year_wise_cf_grows(self):
+        r = calculate_dcf(50, 15, 4, 12, 10)
+        for i in range(1, len(r.year_wise)):
+            assert r.year_wise[i].projected_cf > r.year_wise[i-1].projected_cf
+
+    def test_pv_decreases_each_year(self):
+        # Assuming growth < discount rate eventually, PV should decrease later
+        r = calculate_dcf(50, 10, 4, 12, 10)
+        # At minimum, discount factor strictly decreases
+        for i in range(1, len(r.year_wise)):
+            assert r.year_wise[i].discount_factor < r.year_wise[i-1].discount_factor
+
+    def test_terminal_value_positive(self):
+        r = calculate_dcf(50, 15, 4, 12, 10)
+        assert r.terminal_value > 0
+        assert r.pv_terminal_value > 0
+
+    def test_terminal_value_formula(self):
+        r = calculate_dcf(50, 15, 4, 12, 10)
+        last_cf   = r.year_wise[-1].projected_cf
+        expected_tv = last_cf * 1.04 / (0.12 - 0.04)
+        assert abs(r.terminal_value - expected_tv) < 0.01
+
+    def test_margin_of_safety_undervalued(self):
+        r = calculate_dcf(50, 15, 4, 12, 10, current_price=100)
+        assert r.margin_of_safety_pct > 0   # intrinsic > 100 for these inputs
+
+    def test_margin_of_safety_zero_when_no_price(self):
+        r = calculate_dcf(50, 15, 4, 12, 10)
+        assert r.margin_of_safety_pct == 0.0
+
+    def test_higher_growth_higher_intrinsic(self):
+        r1 = calculate_dcf(50, 10, 4, 12, 10)
+        r2 = calculate_dcf(50, 15, 4, 12, 10)
+        assert r2.intrinsic_value > r1.intrinsic_value
+
+    def test_higher_discount_lower_intrinsic(self):
+        r1 = calculate_dcf(50, 15, 4, 10, 10)
+        r2 = calculate_dcf(50, 15, 4, 14, 10)
+        assert r2.intrinsic_value < r1.intrinsic_value
+
+    def test_discount_le_terminal_growth_raises(self):
+        with pytest.raises(ValueError):
+            calculate_dcf(50, 15, 12, 12, 10)   # discount == terminal
+
+    def test_invalid_cf_raises(self):
+        with pytest.raises(ValueError):
+            calculate_dcf(0, 15, 4, 12, 10)
+
+    def test_invalid_years_raises(self):
+        with pytest.raises(ValueError):
+            calculate_dcf(50, 15, 4, 12, 0)
+
+    def test_negative_terminal_growth_raises(self):
+        with pytest.raises(ValueError):
+            calculate_dcf(50, 15, -1, 12, 10)
+
+    def test_discount_factor_formula(self):
+        r = calculate_dcf(50, 15, 4, 12, 5)
+        for yr in r.year_wise:
+            expected_df = 1 / (1.12 ** yr.year)
+            assert abs(yr.discount_factor - expected_df) < 0.0001
+
+    def test_pv_equals_cf_times_df(self):
+        r = calculate_dcf(50, 15, 4, 12, 5)
+        for yr in r.year_wise:
+            assert abs(yr.present_value - yr.projected_cf * yr.discount_factor) < 0.001
 
 
 class TestFormatInr:

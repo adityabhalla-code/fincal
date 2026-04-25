@@ -268,6 +268,23 @@
     .badge-atm  { background: #fff8e1; color: #f9a825; }
     .badge-otm  { background: #fce4ec; color: #c62828; }
 
+    /* ── Tax regime comparison ── */
+    .regime-header {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.6px; padding: 6px 10px; border-radius: 6px;
+      margin-bottom: 10px; display: inline-block;
+    }
+    .regime-new { background: #e3f2fd; color: #1565c0; }
+    .regime-old { background: #fce4ec; color: #880e4f; }
+    .regime-winner { background: #e8f5e9; color: #1b5e20; }
+    .tax-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #f1f3f4; font-size: 0.85rem; }
+    .tax-row:last-child { border-bottom: none; font-weight: 700; }
+    .tax-row .lbl { color: var(--muted); }
+    .tax-row .val { font-weight: 600; color: var(--text); }
+    .tax-row .val.green  { color: var(--accent); }
+    .tax-row .val.orange { color: var(--warning); }
+    .tax-row .val.red    { color: #c62828; }
+
     /* ── Install banner ── */
     #install-banner {
       display: none;
@@ -286,7 +303,7 @@
 
 <header>
   <h1>Finance Calculator</h1>
-  <p>FD returns · Future value of money</p>
+  <p>FD · Future Value · Options · Tax</p>
 </header>
 
 <div class="tabs">
@@ -295,6 +312,7 @@
   <div class="tab"        onclick="switchTab('fv')">Future Value</div>
   <div class="tab"        onclick="switchTab('opt')">Options Value</div>
   <div class="tab"        onclick="switchTab('dcf')">Stock DCF</div>
+  <div class="tab"        onclick="switchTab('tax')">Income Tax</div>
 </div>
 
 <div id="install-banner">
@@ -599,6 +617,97 @@
   </div>
 </div>
 
+<!-- ═══════════════ INCOME TAX PANEL ═══════════════ -->
+<div class="panel" id="panel-tax">
+
+  <div class="card">
+    <div class="card-title">Income Details — FY 2025-26</div>
+
+    <div class="field">
+      <label>Gross Annual Income (CTC / Total Income)</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="tax-income" placeholder="e.g. 1200000" min="1" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Employment Type</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button class="opt-type-btn active" id="btn-salaried" onclick="setEmpType('salaried')">Salaried</button>
+        <button class="opt-type-btn"        id="btn-self"     onclick="setEmpType('self')">Self-Employed</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="topup-header">
+      <div class="card-title" style="margin-bottom:0">Old Regime Deductions</div>
+      <span class="topup-note">Optional — for comparison</span>
+    </div>
+
+    <div class="field">
+      <label>Section 80C — PPF / ELSS / LIC etc. (max ₹1,50,000)</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="tax-80c" placeholder="0" min="0" max="150000" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Section 80D — Health Insurance Premium</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="tax-80d" placeholder="0" min="0" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>HRA Exemption</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="tax-hra" placeholder="0" min="0" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Other Deductions (NPS 80CCD, Home Loan, etc.)</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="tax-other" placeholder="0" min="0" inputmode="decimal" />
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="tax-error"></div>
+  <button class="btn" onclick="calcTax()">Calculate Tax</button>
+
+  <div class="results" id="tax-results">
+
+    <!-- Recommendation banner -->
+    <div class="card" id="tax-rec" style="text-align:center;padding:18px"></div>
+
+    <!-- Side-by-side summaries -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      <div class="card" style="padding:14px" id="tax-new-card"></div>
+      <div class="card" style="padding:14px" id="tax-old-card"></div>
+    </div>
+
+    <!-- New regime slab breakdown -->
+    <div class="card">
+      <div class="card-title">New Regime — Slab Breakdown</div>
+      <div class="table-wrap"><table id="tax-new-table"></table></div>
+    </div>
+
+    <!-- Old regime slab breakdown -->
+    <div class="card">
+      <div class="card-title">Old Regime — Slab Breakdown</div>
+      <div class="table-wrap"><table id="tax-old-table"></table></div>
+    </div>
+
+  </div>
+</div>
+
 <script>
   // ── Utilities ────────────────────────────────────────────────
   const fmt = n =>
@@ -612,7 +721,7 @@
   function clearErr(id)     { $(id).classList.remove('visible'); }
 
   // ── Tab switching ─────────────────────────────────────────────
-  const TABS = ['std', 'top', 'fv', 'opt', 'dcf'];
+  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax'];
   function switchTab(t) {
     TABS.forEach((x, i) => {
       $('panel-' + x).classList.toggle('active', x === t);
@@ -1026,6 +1135,137 @@
       <tbody>${body}</tbody>`;
 
     showResults('dcf-results');
+  }
+
+  // ── Income Tax (New vs Old Regime FY 2025-26) ────────────────
+  const NEW_SLABS = [[400000,0],[800000,.05],[1200000,.10],[1600000,.15],[2000000,.20],[2400000,.25],[Infinity,.30]];
+  const OLD_SLABS = [[250000,0],[500000,.05],[1000000,.20],[Infinity,.30]];
+
+  let empType = 'salaried';
+  function setEmpType(t) {
+    empType = t;
+    $('btn-salaried').classList.toggle('active', t === 'salaried');
+    $('btn-self').classList.toggle('active', t === 'self');
+  }
+
+  function slabTax(income, slabs) {
+    let tax = 0, prev = 0;
+    const rows = [];
+    for (const [limit, rate] of slabs) {
+      if (income <= prev) break;
+      const inSlab = Math.min(income, limit) - prev;
+      const t = inSlab * rate;
+      tax += t;
+      if (inSlab > 0) rows.push({ from: prev, to: Math.min(income, limit), rate, inSlab, t });
+      prev = limit;
+      if (income <= limit) break;
+    }
+    return { tax, rows };
+  }
+
+  function surchargeRate(income, isNew) {
+    if (income <= 5_000_000)  return 0;
+    if (income <= 10_000_000) return .10;
+    if (income <= 20_000_000) return .15;
+    if (income <= 50_000_000) return .25;
+    return isNew ? .25 : .37;
+  }
+
+  function computeRegime(gross, isSalaried, isNew, oldDeductions) {
+    const stdDed    = isSalaried ? (isNew ? 75_000 : 50_000) : 0;
+    const totalDed  = stdDed + (isNew ? 0 : oldDeductions);
+    const taxable   = Math.max(0, gross - totalDed);
+    const { tax: raw, rows } = slabTax(taxable, isNew ? NEW_SLABS : OLD_SLABS);
+
+    // 87A rebate
+    let rebate = 0;
+    if (isNew  && taxable <= 1_200_000) rebate = Math.min(raw, 60_000);
+    if (!isNew && taxable <= 500_000)   rebate = Math.min(raw, 12_500);
+    const incomeTax = Math.max(0, raw - rebate);
+
+    const sr        = surchargeRate(taxable, isNew);
+    const surcharge = incomeTax * sr;
+    const cess      = (incomeTax + surcharge) * .04;
+    const total     = incomeTax + surcharge + cess;
+
+    return { gross, stdDed, totalDed, taxable, raw, rebate, incomeTax,
+             surcharge, cess, total, rate: total / gross * 100,
+             inhand: (gross - total) / 12, rows };
+  }
+
+  function fmtL(n) {
+    // compact lakh/crore notation
+    if (n >= 1e7)  return '₹' + (n/1e7).toFixed(2) + ' Cr';
+    if (n >= 1e5)  return '₹' + (n/1e5).toFixed(2) + ' L';
+    return fmt(n);
+  }
+
+  function renderSlabTable(tableId, rows) {
+    if (!rows.length) {
+      $(tableId).innerHTML = '<tbody><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:12px">No tax on this income</td></tr></tbody>';
+      return;
+    }
+    const body = rows.map(r => `
+      <tr>
+        <td style="text-align:left">${fmtL(r.from)} – ${r.to >= Infinity ? 'above' : fmtL(r.to)}</td>
+        <td>${(r.rate*100).toFixed(0)}%</td>
+        <td>${fmt(r.inSlab)}</td>
+        <td class="td-topup">${fmt(r.t)}</td>
+      </tr>`).join('');
+    $(tableId).innerHTML = `
+      <thead><tr>
+        <th style="text-align:left">Slab</th><th>Rate</th><th>Your Income</th><th>Tax</th>
+      </tr></thead><tbody>${body}</tbody>`;
+  }
+
+  function renderTaxCard(elId, d, label, isNew) {
+    const cls = isNew ? 'regime-new' : 'regime-old';
+    $(elId).innerHTML = `
+      <span class="regime-header ${cls}">${label}</span>
+      <div class="tax-row"><span class="lbl">Taxable Income</span><span class="val">${fmt(d.taxable)}</span></div>
+      <div class="tax-row"><span class="lbl">Slab Tax</span><span class="val">${fmt(d.raw)}</span></div>
+      ${d.rebate > 0 ? `<div class="tax-row"><span class="lbl">87A Rebate</span><span class="val green">-${fmt(d.rebate)}</span></div>` : ''}
+      ${d.surcharge > 0 ? `<div class="tax-row"><span class="lbl">Surcharge</span><span class="val orange">${fmt(d.surcharge)}</span></div>` : ''}
+      <div class="tax-row"><span class="lbl">Cess (4%)</span><span class="val">${fmt(d.cess)}</span></div>
+      <div class="tax-row"><span class="lbl">Total Tax</span><span class="val red">${fmt(d.total)}</span></div>
+      <div class="tax-row"><span class="lbl">Eff. Rate</span><span class="val">${d.rate.toFixed(2)}%</span></div>
+      <div class="tax-row"><span class="lbl">Monthly In-hand</span><span class="val green">${fmt(d.inhand)}</span></div>`;
+  }
+
+  function calcTax() {
+    clearErr('tax-error');
+    const gross = fv('tax-income');
+    if (gross <= 0) return showErr('tax-error', 'Enter a valid annual income.');
+
+    const isSal  = empType === 'salaried';
+    const ded80c = Math.min(fv('tax-80c'), 150_000);
+    const ded80d = fv('tax-80d');
+    const hra    = fv('tax-hra');
+    const other  = fv('tax-other');
+    const oldDed = ded80c + ded80d + hra + other;
+
+    const n = computeRegime(gross, isSal, true,  0);
+    const o = computeRegime(gross, isSal, false, oldDed);
+
+    const saving  = o.total - n.total;
+    const newBetter = saving > 0;
+    const same = Math.abs(saving) < 1;
+
+    $('tax-rec').innerHTML = same
+      ? `<span class="regime-header" style="background:#f3f4f6;color:#555">Both regimes are equal for your income</span>`
+      : `<span class="regime-header ${newBetter ? 'regime-winner' : 'regime-old'}">
+          ${newBetter ? '✓ New Regime saves you ' + fmt(saving) : '✓ Old Regime saves you ' + fmt(-saving)}
+         </span>
+         <div style="font-size:0.8rem;color:var(--muted);margin-top:6px">
+           compared to the ${newBetter ? 'old' : 'new'} regime
+         </div>`;
+
+    renderTaxCard('tax-new-card', n, 'New Regime', true);
+    renderTaxCard('tax-old-card', o, 'Old Regime', false);
+    renderSlabTable('tax-new-table', n.rows);
+    renderSlabTable('tax-old-table', o.rows);
+
+    showResults('tax-results');
   }
 
   // ── iOS "Add to Home Screen" hint ─────────────────────────────

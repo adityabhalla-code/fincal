@@ -7,12 +7,14 @@ from fd_calculator import (
     FDResult,
     FVResult,
     OptionsResult,
+    TaxResult,
     YearResult,
     calculate_dcf,
     calculate_fd,
     calculate_fd_with_topups,
     calculate_future_value,
     calculate_options_value,
+    calculate_tax,
     format_inr,
 )
 
@@ -524,6 +526,140 @@ class TestDCF:
         r = calculate_dcf(50, 15, 4, 12, 5)
         for yr in r.year_wise:
             assert abs(yr.present_value - yr.projected_cf * yr.discount_factor) < 0.001
+
+
+class TestIncomeTax:
+    # ── New regime basic ─────────────────────────────────────────
+    def test_zero_tax_below_12l_new_regime(self):
+        # ₹12L taxable → slab tax = 60,000 → 87A rebate wipes it out
+        r = calculate_tax(12_00_000, regime='new', is_salaried=False)
+        assert r.total_tax == 0.0
+
+    def test_zero_tax_salaried_12_75l(self):
+        # Salaried with ₹75k std deduction → taxable = ₹12L → zero tax
+        r = calculate_tax(12_75_000, regime='new', is_salaried=True)
+        assert r.total_tax == 0.0
+
+    def test_rebate_87a_new_regime(self):
+        r = calculate_tax(10_00_000, regime='new', is_salaried=False)
+        assert r.rebate_87a > 0
+        assert r.income_tax == 0.0
+
+    def test_no_rebate_above_12l_new(self):
+        r = calculate_tax(13_00_000, regime='new', is_salaried=False)
+        assert r.rebate_87a == 0.0
+        assert r.income_tax > 0
+
+    def test_standard_deduction_new_salaried(self):
+        r = calculate_tax(15_00_000, regime='new', is_salaried=True)
+        assert r.standard_deduction == 75_000
+        assert r.taxable_income == 14_25_000
+
+    def test_no_standard_deduction_self_employed(self):
+        r = calculate_tax(15_00_000, regime='new', is_salaried=False)
+        assert r.standard_deduction == 0
+        assert r.taxable_income == 15_00_000
+
+    def test_new_regime_slab_tax_20l(self):
+        # 20L taxable: 5%×4L + 10%×4L + 15%×4L + 20%×4L
+        # = 20000 + 40000 + 60000 + 80000 = 200000
+        r = calculate_tax(20_00_000, regime='new', is_salaried=False)
+        assert abs(r.slab_tax - 2_00_000) < 1
+
+    def test_cess_is_4pct(self):
+        r = calculate_tax(20_00_000, regime='new', is_salaried=False)
+        expected_cess = (r.income_tax + r.surcharge) * 0.04
+        assert abs(r.cess - expected_cess) < 0.01
+
+    def test_total_tax_components(self):
+        r = calculate_tax(25_00_000, regime='new', is_salaried=False)
+        assert abs(r.total_tax - (r.income_tax + r.surcharge + r.cess)) < 0.01
+
+    def test_effective_rate(self):
+        r = calculate_tax(25_00_000, regime='new', is_salaried=False)
+        assert abs(r.effective_rate_pct - r.total_tax / 25_00_000 * 100) < 0.001
+
+    def test_monthly_inhand(self):
+        r = calculate_tax(20_00_000, regime='new', is_salaried=False)
+        assert abs(r.monthly_inhand - (20_00_000 - r.total_tax) / 12) < 0.01
+
+    def test_slab_breakdown_present(self):
+        r = calculate_tax(20_00_000, regime='new', is_salaried=False)
+        assert len(r.slab_breakdown) > 0
+
+    def test_slab_breakdown_tax_sums_to_slab_tax(self):
+        r = calculate_tax(20_00_000, regime='new', is_salaried=False)
+        assert abs(sum(s.tax_in_slab for s in r.slab_breakdown) - r.slab_tax) < 0.01
+
+    # ── Old regime ───────────────────────────────────────────────
+    def test_standard_deduction_old_salaried(self):
+        r = calculate_tax(10_00_000, regime='old', is_salaried=True)
+        assert r.standard_deduction == 50_000
+
+    def test_rebate_87a_old_regime(self):
+        # taxable ≤ 5L in old regime → rebate up to 12,500
+        r = calculate_tax(5_00_000, regime='old', is_salaried=False)
+        assert r.rebate_87a > 0
+        assert r.total_tax == 0.0
+
+    def test_80c_deduction_capped_at_150000(self):
+        r = calculate_tax(15_00_000, regime='old', is_salaried=False, deduction_80c=2_00_000)
+        assert r.other_deductions == 1_50_000  # capped
+
+    def test_old_regime_deductions_reduce_taxable(self):
+        r_no_ded  = calculate_tax(15_00_000, regime='old', is_salaried=False)
+        r_with_ded = calculate_tax(15_00_000, regime='old', is_salaried=False,
+                                   deduction_80c=1_50_000, deduction_80d=25_000)
+        assert r_with_ded.taxable_income < r_no_ded.taxable_income
+
+    def test_deductions_not_applied_in_new_regime(self):
+        r_clean = calculate_tax(15_00_000, regime='new', is_salaried=False)
+        r_ded   = calculate_tax(15_00_000, regime='new', is_salaried=False,
+                                deduction_80c=1_50_000)
+        assert r_clean.taxable_income == r_ded.taxable_income
+
+    # ── Surcharge ────────────────────────────────────────────────
+    def test_no_surcharge_below_50l(self):
+        r = calculate_tax(40_00_000, regime='new', is_salaried=False)
+        assert r.surcharge == 0.0
+
+    def test_surcharge_10pct_between_50l_1cr(self):
+        r = calculate_tax(60_00_000, regime='new', is_salaried=False)
+        assert r.surcharge_rate == 0.10
+        assert abs(r.surcharge - r.income_tax * 0.10) < 0.01
+
+    def test_surcharge_capped_25pct_new_regime(self):
+        r = calculate_tax(6_00_00_000, regime='new', is_salaried=False)
+        assert r.surcharge_rate == 0.25
+
+    def test_surcharge_37pct_old_regime_above_5cr(self):
+        r = calculate_tax(6_00_00_000, regime='old', is_salaried=False)
+        assert r.surcharge_rate == 0.37
+
+    # ── Validation ───────────────────────────────────────────────
+    def test_invalid_regime_raises(self):
+        with pytest.raises(ValueError):
+            calculate_tax(10_00_000, regime='middle')
+
+    def test_zero_income_raises(self):
+        with pytest.raises(ValueError):
+            calculate_tax(0)
+
+    def test_negative_deduction_raises(self):
+        with pytest.raises(ValueError):
+            calculate_tax(10_00_000, deduction_80c=-1000)
+
+    # ── Result fields ────────────────────────────────────────────
+    def test_result_regime_field(self):
+        r = calculate_tax(10_00_000, regime='new')
+        assert r.regime == 'new'
+
+    def test_new_regime_better_without_deductions(self):
+        # For typical income with no deductions, new regime usually wins
+        n = calculate_tax(15_00_000, regime='new', is_salaried=False)
+        o = calculate_tax(15_00_000, regime='old', is_salaried=False)
+        # New regime should be <= old when no deductions
+        assert n.total_tax <= o.total_tax
 
 
 class TestFormatInr:

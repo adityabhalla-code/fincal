@@ -358,6 +358,144 @@ def calculate_dcf(
     )
 
 
+# ── Income Tax Calculator (FY 2025-26) ──────────────────────────
+
+NEW_TAX_SLABS: list[tuple[float, float]] = [
+    (400_000,    0.00),
+    (800_000,    0.05),
+    (1_200_000,  0.10),
+    (1_600_000,  0.15),
+    (2_000_000,  0.20),
+    (2_400_000,  0.25),
+    (float("inf"), 0.30),
+]
+
+OLD_TAX_SLABS: list[tuple[float, float]] = [
+    (250_000,    0.00),
+    (500_000,    0.05),
+    (1_000_000,  0.20),
+    (float("inf"), 0.30),
+]
+
+
+@dataclass
+class TaxSlabResult:
+    slab_from: float
+    slab_to: float
+    rate: float
+    income_in_slab: float
+    tax_in_slab: float
+
+
+@dataclass
+class TaxResult:
+    regime: str               # 'new' or 'old'
+    gross_income: float
+    standard_deduction: float
+    other_deductions: float   # 80C + 80D + HRA + other (old regime only)
+    taxable_income: float
+    slab_tax: float
+    rebate_87a: float
+    income_tax: float         # after rebate
+    surcharge_rate: float
+    surcharge: float
+    cess: float
+    total_tax: float
+    effective_rate_pct: float
+    monthly_inhand: float
+    slab_breakdown: list[TaxSlabResult]
+
+
+def _slab_tax(taxable: float, slabs: list[tuple[float, float]]) -> tuple[float, list[TaxSlabResult]]:
+    tax, prev, breakdown = 0.0, 0.0, []
+    for limit, rate in slabs:
+        if taxable <= prev:
+            break
+        in_slab = min(taxable, limit) - prev
+        slab_t  = in_slab * rate
+        tax    += slab_t
+        breakdown.append(TaxSlabResult(prev, min(taxable, limit), rate, in_slab, slab_t))
+        prev = limit
+        if taxable <= limit:
+            break
+    return tax, breakdown
+
+
+def _surcharge_rate(taxable: float, new_regime: bool) -> float:
+    if taxable <= 5_000_000:   return 0.00
+    if taxable <= 10_000_000:  return 0.10
+    if taxable <= 20_000_000:  return 0.15
+    if taxable <= 50_000_000:  return 0.25
+    return 0.25 if new_regime else 0.37   # new regime caps surcharge at 25%
+
+
+def calculate_tax(
+    gross_income: float,
+    regime: str = 'new',
+    is_salaried: bool = True,
+    deduction_80c: float = 0.0,
+    deduction_80d: float = 0.0,
+    hra_exemption: float = 0.0,
+    other_deductions: float = 0.0,
+) -> TaxResult:
+    """
+    Calculate income tax under new or old regime (FY 2025-26).
+
+    New regime: standard deduction ₹75,000 (salaried); 87A rebate up to
+    ₹60,000 for taxable income ≤ ₹12,00,000; surcharge capped at 25%.
+
+    Old regime: standard deduction ₹50,000 (salaried); 80C/80D/HRA and
+    other deductions applied; 87A rebate ₹12,500 for taxable ≤ ₹5,00,000.
+    """
+    if regime not in ('new', 'old'):
+        raise ValueError("regime must be 'new' or 'old'")
+    if gross_income <= 0:
+        raise ValueError("Gross income must be positive")
+    if any(d < 0 for d in [deduction_80c, deduction_80d, hra_exemption, other_deductions]):
+        raise ValueError("Deductions must be non-negative")
+
+    is_new = regime == 'new'
+    std_ded      = (75_000 if is_new else 50_000) if is_salaried else 0.0
+    ded_80c      = min(deduction_80c, 150_000)    # 80C cap
+    old_ded      = ded_80c + deduction_80d + hra_exemption + other_deductions
+    other_ded    = 0.0 if is_new else old_ded
+    total_ded    = std_ded + other_ded
+    taxable      = max(0.0, gross_income - total_ded)
+
+    slabs        = NEW_TAX_SLABS if is_new else OLD_TAX_SLABS
+    slab_t, bkd  = _slab_tax(taxable, slabs)
+
+    rebate = 0.0
+    if is_new  and taxable <= 1_200_000: rebate = min(slab_t, 60_000)
+    if not is_new and taxable <= 500_000: rebate = min(slab_t, 12_500)
+
+    income_tax   = max(0.0, slab_t - rebate)
+    sr_rate      = _surcharge_rate(taxable, is_new)
+    surcharge    = income_tax * sr_rate
+    cess         = (income_tax + surcharge) * 0.04
+    total_tax    = income_tax + surcharge + cess
+    eff_rate     = total_tax / gross_income * 100
+    inhand       = (gross_income - total_tax) / 12
+
+    return TaxResult(
+        regime=regime,
+        gross_income=gross_income,
+        standard_deduction=std_ded,
+        other_deductions=other_ded,
+        taxable_income=taxable,
+        slab_tax=slab_t,
+        rebate_87a=rebate,
+        income_tax=income_tax,
+        surcharge_rate=sr_rate,
+        surcharge=surcharge,
+        cess=cess,
+        total_tax=total_tax,
+        effective_rate_pct=eff_rate,
+        monthly_inhand=inhand,
+        slab_breakdown=bkd,
+    )
+
+
 def format_inr(amount: float) -> str:
     return f"₹{amount:,.2f}"
 

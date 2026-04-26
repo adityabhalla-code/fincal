@@ -2,6 +2,7 @@
 
 import pytest
 from fd_calculator import (
+    CarLoanResult,
     CompoundingFrequency,
     DCFResult,
     FDResult,
@@ -10,6 +11,7 @@ from fd_calculator import (
     OptionsResult,
     TaxResult,
     YearResult,
+    calculate_car_loan,
     calculate_dcf,
     calculate_fd,
     calculate_fd_with_topups,
@@ -768,6 +770,84 @@ class TestHomeLoan:
         r_short = calculate_home_loan(50_00_000, 8.5, 15)
         r_long  = calculate_home_loan(50_00_000, 8.5, 25)
         assert r_long.total_interest > r_short.total_interest
+
+
+class TestCarLoan:
+    def test_basic_result_type(self):
+        result = calculate_car_loan(10_00_000, 2_00_000, 9.5, 5)
+        assert isinstance(result, CarLoanResult)
+
+    def test_loan_amount(self):
+        result = calculate_car_loan(10_00_000, 2_00_000, 9.5, 5)
+        assert result.loan_amount == pytest.approx(8_00_000)
+
+    def test_emi_positive(self):
+        result = calculate_car_loan(10_00_000, 2_00_000, 9.5, 5)
+        assert result.monthly_emi > 0
+
+    def test_total_cost_includes_down_payment(self):
+        result = calculate_car_loan(10_00_000, 2_00_000, 9.5, 5)
+        assert result.total_cost == pytest.approx(result.down_payment + result.total_loan_payment, rel=1e-6)
+
+    def test_total_interest_positive(self):
+        result = calculate_car_loan(10_00_000, 2_00_000, 9.5, 5)
+        assert result.total_interest > 0
+
+    def test_year_wise_count(self):
+        result = calculate_car_loan(10_00_000, 2_00_000, 9.5, 5)
+        assert len(result.year_wise) == 5
+
+    def test_closing_balance_zero_at_end(self):
+        result = calculate_car_loan(10_00_000, 2_00_000, 9.5, 5)
+        assert result.year_wise[-1].closing_balance == pytest.approx(0, abs=1.0)
+
+    def test_fractional_tenure_months(self):
+        result = calculate_car_loan(6_00_000, 1_00_000, 8.0, 3, tenure_months=6)
+        assert result.total_months == 42
+        assert result.monthly_emi > 0
+
+    def test_zero_down_payment(self):
+        result = calculate_car_loan(5_00_000, 0, 10.0, 3)
+        assert result.loan_amount == pytest.approx(5_00_000)
+        assert result.down_payment == 0
+
+    def test_higher_rate_higher_emi(self):
+        r_low  = calculate_car_loan(8_00_000, 0, 7.0, 5)
+        r_high = calculate_car_loan(8_00_000, 0, 10.0, 5)
+        assert r_high.monthly_emi > r_low.monthly_emi
+
+    def test_longer_tenure_lower_emi(self):
+        r_short = calculate_car_loan(8_00_000, 0, 9.0, 3)
+        r_long  = calculate_car_loan(8_00_000, 0, 9.0, 7)
+        assert r_long.monthly_emi < r_short.monthly_emi
+
+    def test_invalid_price_raises(self):
+        with pytest.raises(ValueError):
+            calculate_car_loan(0, 0, 9.5, 5)
+
+    def test_negative_down_raises(self):
+        with pytest.raises(ValueError):
+            calculate_car_loan(5_00_000, -1, 9.5, 5)
+
+    def test_down_equals_price_raises(self):
+        with pytest.raises(ValueError):
+            calculate_car_loan(5_00_000, 5_00_000, 9.5, 5)
+
+    def test_down_exceeds_price_raises(self):
+        with pytest.raises(ValueError):
+            calculate_car_loan(5_00_000, 6_00_000, 9.5, 5)
+
+    def test_negative_rate_raises(self):
+        with pytest.raises(ValueError):
+            calculate_car_loan(5_00_000, 0, -1, 5)
+
+    def test_zero_tenure_raises(self):
+        with pytest.raises(ValueError):
+            calculate_car_loan(5_00_000, 0, 9.5, 0, tenure_months=0)
+
+    def test_invalid_tenure_months_raises(self):
+        with pytest.raises(ValueError):
+            calculate_car_loan(5_00_000, 0, 9.5, 1, tenure_months=12)
 
 
 class TestFormatInr:

@@ -598,6 +598,107 @@ def calculate_home_loan(
     )
 
 
+# ── Car Loan EMI Calculator ──────────────────────────────────────
+
+@dataclass
+class CarLoanResult:
+    car_price: float
+    down_payment: float
+    loan_amount: float
+    annual_rate: float
+    total_months: int
+    monthly_emi: float
+    total_loan_payment: float   # EMI × n
+    total_interest: float
+    total_cost: float           # down_payment + total_loan_payment
+    year_wise: list[LoanYearResult]
+
+
+def calculate_car_loan(
+    car_price: float,
+    down_payment: float,
+    annual_rate_percent: float,
+    tenure_years: int,
+    tenure_months: int = 0,
+) -> CarLoanResult:
+    """
+    Calculate car loan EMI and year-wise amortization schedule.
+
+    loan_amount = car_price - down_payment
+    EMI formula same as home loan: P × r(1+r)^n / ((1+r)^n - 1)
+    """
+    if car_price <= 0:
+        raise ValueError("Car price must be positive")
+    if down_payment < 0:
+        raise ValueError("Down payment cannot be negative")
+    if down_payment >= car_price:
+        raise ValueError("Down payment must be less than car price")
+    if annual_rate_percent < 0:
+        raise ValueError("Interest rate must be non-negative")
+    if tenure_years == 0 and tenure_months == 0:
+        raise ValueError("Tenure must be at least 1 month")
+    if not (0 <= tenure_months <= 11):
+        raise ValueError("tenure_months must be between 0 and 11")
+
+    principal = car_price - down_payment
+    n = tenure_years * 12 + tenure_months
+    r = annual_rate_percent / 12 / 100
+
+    if r == 0:
+        emi = principal / n
+    else:
+        emi = principal * r * (1 + r) ** n / ((1 + r) ** n - 1)
+
+    balance   = principal
+    year_wise = []
+
+    for year in range(1, tenure_years + 2):
+        months_in_year = min(12, n - (year - 1) * 12)
+        if months_in_year <= 0:
+            break
+
+        opening     = balance
+        y_principal = 0.0
+        y_interest  = 0.0
+
+        for _ in range(months_in_year):
+            interest    = balance * r
+            principal_p = min(emi - interest, balance)
+            y_principal += principal_p
+            y_interest  += interest
+            balance     -= principal_p
+            if balance < 0.005:
+                balance = 0.0
+
+        year_wise.append(LoanYearResult(
+            year            = year,
+            opening_balance = opening,
+            principal_paid  = y_principal,
+            interest_paid   = y_interest,
+            total_paid      = y_principal + y_interest,
+            closing_balance = balance,
+        ))
+
+        if balance == 0:
+            break
+
+    total_loan_payment = emi * n
+    total_interest     = total_loan_payment - principal
+
+    return CarLoanResult(
+        car_price          = car_price,
+        down_payment       = down_payment,
+        loan_amount        = principal,
+        annual_rate        = annual_rate_percent,
+        total_months       = n,
+        monthly_emi        = emi,
+        total_loan_payment = total_loan_payment,
+        total_interest     = total_interest,
+        total_cost         = down_payment + total_loan_payment,
+        year_wise          = year_wise,
+    )
+
+
 def format_inr(amount: float) -> str:
     return f"₹{amount:,.2f}"
 

@@ -496,6 +496,108 @@ def calculate_tax(
     )
 
 
+# ── Home Loan EMI Calculator ─────────────────────────────────────
+
+@dataclass
+class LoanYearResult:
+    year: int
+    opening_balance: float
+    principal_paid: float
+    interest_paid: float
+    total_paid: float
+    closing_balance: float
+
+
+@dataclass
+class LoanResult:
+    principal: float
+    annual_rate: float
+    total_months: int
+    monthly_emi: float
+    total_payment: float
+    total_interest: float
+    year_wise: list[LoanYearResult]
+
+
+def calculate_home_loan(
+    principal: float,
+    annual_rate_percent: float,
+    tenure_years: int,
+    tenure_months: int = 0,
+) -> LoanResult:
+    """
+    Calculate home loan EMI and year-wise amortization schedule.
+
+    EMI = P × r × (1+r)^n / ((1+r)^n − 1)
+    where r = monthly interest rate, n = total months.
+    Zero-interest edge case: EMI = P / n.
+    """
+    if principal <= 0:
+        raise ValueError("Principal must be positive")
+    if annual_rate_percent < 0:
+        raise ValueError("Interest rate must be non-negative")
+    if tenure_years == 0 and tenure_months == 0:
+        raise ValueError("Tenure must be at least 1 month")
+    if not (0 <= tenure_months <= 11):
+        raise ValueError("tenure_months must be between 0 and 11")
+
+    n = tenure_years * 12 + tenure_months
+    r = annual_rate_percent / 12 / 100
+
+    if r == 0:
+        emi = principal / n
+    else:
+        emi = principal * r * (1 + r) ** n / ((1 + r) ** n - 1)
+
+    balance   = principal
+    year_wise = []
+    month_num = 0
+
+    for year in range(1, tenure_years + 2):   # +1 handles trailing months
+        months_in_year = min(12, n - (year - 1) * 12)
+        if months_in_year <= 0:
+            break
+
+        opening    = balance
+        y_principal = 0.0
+        y_interest  = 0.0
+
+        for _ in range(months_in_year):
+            month_num  += 1
+            interest    = balance * r
+            principal_p = min(emi - interest, balance)
+            y_principal += principal_p
+            y_interest  += interest
+            balance     -= principal_p
+            if balance < 0.005:
+                balance = 0.0
+
+        year_wise.append(LoanYearResult(
+            year          = year,
+            opening_balance = opening,
+            principal_paid  = y_principal,
+            interest_paid   = y_interest,
+            total_paid      = y_principal + y_interest,
+            closing_balance = balance,
+        ))
+
+        if balance == 0:
+            break
+
+    total_payment   = emi * n
+    total_interest  = total_payment - principal
+
+    return LoanResult(
+        principal      = principal,
+        annual_rate    = annual_rate_percent,
+        total_months   = n,
+        monthly_emi    = emi,
+        total_payment  = total_payment,
+        total_interest = total_interest,
+        year_wise      = year_wise,
+    )
+
+
 def format_inr(amount: float) -> str:
     return f"₹{amount:,.2f}"
 

@@ -313,6 +313,7 @@
   <div class="tab"        onclick="switchTab('opt')">Options Value</div>
   <div class="tab"        onclick="switchTab('dcf')">Stock DCF</div>
   <div class="tab"        onclick="switchTab('tax')">Income Tax</div>
+  <div class="tab"        onclick="switchTab('loan')">Home Loan</div>
 </div>
 
 <div id="install-banner">
@@ -708,6 +709,66 @@
   </div>
 </div>
 
+<!-- ═══════════════ HOME LOAN PANEL ═══════════════ -->
+<div class="panel" id="panel-loan">
+
+  <div class="card">
+    <div class="card-title">Loan Details</div>
+
+    <div class="field">
+      <label>Loan Amount</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="loan-amount" placeholder="e.g. 5000000" min="1" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Annual Interest Rate</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="loan-rate" placeholder="e.g. 8.5" min="0.01" step="0.01" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Loan Tenure</label>
+      <div class="tenure-grid">
+        <div class="input-wrap has-suffix">
+          <input type="number" id="loan-years" placeholder="0" min="0" max="30" inputmode="numeric" />
+          <span class="suffix">yr</span>
+        </div>
+        <div class="input-wrap has-suffix">
+          <input type="number" id="loan-months" placeholder="0" min="0" max="11" inputmode="numeric" />
+          <span class="suffix">mo</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="loan-error"></div>
+  <button class="btn" onclick="calcLoan()">Calculate EMI</button>
+
+  <div class="results" id="loan-results">
+    <div class="summary-grid" id="loan-summary"></div>
+
+    <!-- Principal vs Interest donut-style bar -->
+    <div class="card" id="loan-bar-card">
+      <div class="card-title">Principal vs Interest Split</div>
+      <div id="loan-bar" style="height:20px;border-radius:10px;overflow:hidden;display:flex;margin-bottom:10px"></div>
+      <div style="display:flex;gap:16px;font-size:0.78rem">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--primary);margin-right:4px"></span>Principal</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--warning);margin-right:4px"></span>Interest</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Year-wise Amortization</div>
+      <div class="table-wrap"><table id="loan-table"></table></div>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Utilities ────────────────────────────────────────────────
   const fmt = n =>
@@ -721,7 +782,7 @@
   function clearErr(id)     { $(id).classList.remove('visible'); }
 
   // ── Tab switching ─────────────────────────────────────────────
-  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax'];
+  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax', 'loan'];
   function switchTab(t) {
     TABS.forEach((x, i) => {
       $('panel-' + x).classList.toggle('active', x === t);
@@ -1266,6 +1327,114 @@
     renderSlabTable('tax-old-table', o.rows);
 
     showResults('tax-results');
+  }
+
+  // ── Home Loan EMI ─────────────────────────────────────────────
+  function calcLoan() {
+    clearErr('loan-error');
+    const P      = fv('loan-amount');
+    const rate   = fv('loan-rate');
+    const years  = iv('loan-years');
+    const months = iv('loan-months');
+
+    if (P    <= 0)                   return showErr('loan-error', 'Enter a valid loan amount.');
+    if (rate <= 0)                   return showErr('loan-error', 'Enter a valid interest rate.');
+    if (years === 0 && months === 0) return showErr('loan-error', 'Enter a loan tenure.');
+    if (months < 0 || months > 11)  return showErr('loan-error', 'Months must be between 0 and 11.');
+
+    const n  = years * 12 + months;   // total months
+    const r  = rate / 12 / 100;       // monthly rate
+
+    // EMI formula; handle 0% edge case
+    const emi = r === 0 ? P / n : P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
+
+    // Build full amortization month-by-month, group by year
+    let balance = P;
+    const yearRows = [];
+    let monthNum = 0;
+
+    for (let y = 1; balance > 0.005; y++) {
+      const monthsInYear = Math.min(12, n - (y - 1) * 12);
+      if (monthsInYear <= 0) break;
+
+      let yPrincipal = 0, yInterest = 0;
+      const opening = balance;
+
+      for (let m = 0; m < monthsInYear; m++) {
+        monthNum++;
+        const interest  = balance * r;
+        const principal = Math.min(emi - interest, balance);
+        yPrincipal += principal;
+        yInterest  += interest;
+        balance    -= principal;
+        if (balance < 0.01) balance = 0;
+      }
+
+      yearRows.push({
+        year: y,
+        opening,
+        principal: yPrincipal,
+        interest: yInterest,
+        total: yPrincipal + yInterest,
+        closing: balance,
+      });
+    }
+
+    const totalPaid     = emi * n;
+    const totalInterest = totalPaid - P;
+    const intPct        = totalInterest / P * 100;
+
+    // Summary cards
+    $('loan-summary').innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">Monthly EMI</div>
+        <div class="s-value">${fmt(emi)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Loan Amount</div>
+        <div class="s-value">${fmt(P)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Interest</div>
+        <div class="s-value orange">${fmt(totalInterest)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Payment</div>
+        <div class="s-value">${fmt(totalPaid)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Interest Burden</div>
+        <div class="s-value orange">${intPct.toFixed(1)}% of principal</div>
+      </div>
+    `;
+
+    // Split bar
+    const pPct = (P / totalPaid * 100).toFixed(1);
+    const iPct = (totalInterest / totalPaid * 100).toFixed(1);
+    $('loan-bar').innerHTML = `
+      <div style="width:${pPct}%;background:var(--primary)"></div>
+      <div style="width:${iPct}%;background:var(--warning)"></div>`;
+    const barCard = $('loan-bar-card');
+    barCard.querySelector('#loan-bar + div').innerHTML = `
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--primary);margin-right:4px"></span>Principal ${pPct}%</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--warning);margin-right:4px"></span>Interest ${iPct}%</span>`;
+
+    // Amortization table
+    const body = yearRows.map(r => `
+      <tr>
+        <td>${r.year}</td>
+        <td>${fmt(r.opening)}</td>
+        <td class="td-topup">${fmt(r.principal)}</td>
+        <td class="td-interest">${fmt(r.interest)}</td>
+        <td>${fmt(r.closing)}</td>
+      </tr>`).join('');
+    $('loan-table').innerHTML = `
+      <thead><tr>
+        <th>Yr</th><th>Opening</th><th>Principal</th><th>Interest</th><th>Balance</th>
+      </tr></thead>
+      <tbody>${body}</tbody>`;
+
+    showResults('loan-results');
   }
 
   // ── iOS "Add to Home Screen" hint ─────────────────────────────

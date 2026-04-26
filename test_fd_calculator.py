@@ -6,6 +6,7 @@ from fd_calculator import (
     DCFResult,
     FDResult,
     FVResult,
+    LoanResult,
     OptionsResult,
     TaxResult,
     YearResult,
@@ -13,6 +14,7 @@ from fd_calculator import (
     calculate_fd,
     calculate_fd_with_topups,
     calculate_future_value,
+    calculate_home_loan,
     calculate_options_value,
     calculate_tax,
     format_inr,
@@ -660,6 +662,112 @@ class TestIncomeTax:
         o = calculate_tax(15_00_000, regime='old', is_salaried=False)
         # New regime should be <= old when no deductions
         assert n.total_tax <= o.total_tax
+
+
+class TestHomeLoan:
+    def test_emi_formula(self):
+        # ₹50L at 8.5% for 20 years
+        r   = calculate_home_loan(50_00_000, 8.5, 20)
+        mr  = 8.5 / 12 / 100
+        n   = 240
+        expected_emi = 50_00_000 * mr * (1 + mr) ** n / ((1 + mr) ** n - 1)
+        assert abs(r.monthly_emi - expected_emi) < 0.01
+
+    def test_total_payment(self):
+        r = calculate_home_loan(50_00_000, 8.5, 20)
+        assert abs(r.total_payment - r.monthly_emi * 240) < 1
+
+    def test_total_interest(self):
+        r = calculate_home_loan(50_00_000, 8.5, 20)
+        assert abs(r.total_interest - (r.total_payment - 50_00_000)) < 1
+
+    def test_total_interest_positive(self):
+        r = calculate_home_loan(50_00_000, 8.5, 20)
+        assert r.total_interest > 0
+
+    def test_year_wise_count_whole_years(self):
+        r = calculate_home_loan(50_00_000, 8.5, 20)
+        assert len(r.year_wise) == 20
+
+    def test_year_wise_count_with_extra_months(self):
+        # 5 years 6 months → 6 year-groups (last partial)
+        r = calculate_home_loan(50_00_000, 8.5, 5, tenure_months=6)
+        assert len(r.year_wise) == 6
+
+    def test_opening_balance_year1_equals_principal(self):
+        r = calculate_home_loan(30_00_000, 9.0, 15)
+        assert r.year_wise[0].opening_balance == 30_00_000
+
+    def test_closing_balance_decreases_each_year(self):
+        r = calculate_home_loan(30_00_000, 9.0, 15)
+        for i in range(1, len(r.year_wise)):
+            assert r.year_wise[i].closing_balance < r.year_wise[i-1].closing_balance
+
+    def test_final_closing_balance_near_zero(self):
+        r = calculate_home_loan(30_00_000, 9.0, 15)
+        assert r.year_wise[-1].closing_balance < 1.0
+
+    def test_opening_matches_prev_closing(self):
+        r = calculate_home_loan(30_00_000, 9.0, 10)
+        for i in range(1, len(r.year_wise)):
+            assert abs(r.year_wise[i].opening_balance - r.year_wise[i-1].closing_balance) < 0.01
+
+    def test_total_paid_per_year_sums_to_total(self):
+        r = calculate_home_loan(30_00_000, 9.0, 10)
+        summed = sum(yr.total_paid for yr in r.year_wise)
+        assert abs(summed - r.total_payment) < 1
+
+    def test_interest_in_year1_greater_than_last_year(self):
+        # Early years are interest-heavy
+        r = calculate_home_loan(50_00_000, 8.5, 20)
+        assert r.year_wise[0].interest_paid > r.year_wise[-1].interest_paid
+
+    def test_principal_in_last_year_greater_than_first(self):
+        r = calculate_home_loan(50_00_000, 8.5, 20)
+        assert r.year_wise[-1].principal_paid > r.year_wise[0].principal_paid
+
+    def test_total_months_stored(self):
+        r = calculate_home_loan(30_00_000, 9.0, 10, tenure_months=6)
+        assert r.total_months == 126
+
+    def test_zero_rate_emi_equals_principal_over_months(self):
+        r = calculate_home_loan(12_00_000, 0, 10)
+        assert abs(r.monthly_emi - 10_000) < 0.01
+
+    def test_zero_rate_zero_interest(self):
+        r = calculate_home_loan(12_00_000, 0, 10)
+        assert abs(r.total_interest) < 1
+
+    def test_invalid_principal_raises(self):
+        with pytest.raises(ValueError):
+            calculate_home_loan(0, 8.5, 20)
+
+    def test_negative_rate_raises(self):
+        with pytest.raises(ValueError):
+            calculate_home_loan(50_00_000, -1, 20)
+
+    def test_zero_tenure_raises(self):
+        with pytest.raises(ValueError):
+            calculate_home_loan(50_00_000, 8.5, 0, tenure_months=0)
+
+    def test_invalid_tenure_months_raises(self):
+        with pytest.raises(ValueError):
+            calculate_home_loan(50_00_000, 8.5, 5, tenure_months=12)
+
+    def test_higher_rate_higher_emi(self):
+        r_low  = calculate_home_loan(50_00_000, 7.0, 20)
+        r_high = calculate_home_loan(50_00_000, 9.0, 20)
+        assert r_high.monthly_emi > r_low.monthly_emi
+
+    def test_longer_tenure_lower_emi(self):
+        r_short = calculate_home_loan(50_00_000, 8.5, 15)
+        r_long  = calculate_home_loan(50_00_000, 8.5, 25)
+        assert r_long.monthly_emi < r_short.monthly_emi
+
+    def test_longer_tenure_more_interest(self):
+        r_short = calculate_home_loan(50_00_000, 8.5, 15)
+        r_long  = calculate_home_loan(50_00_000, 8.5, 25)
+        assert r_long.total_interest > r_short.total_interest
 
 
 class TestFormatInr:

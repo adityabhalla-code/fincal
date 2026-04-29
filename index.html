@@ -315,6 +315,7 @@
   <div class="tab"        onclick="switchTab('tax')">Income Tax</div>
   <div class="tab"        onclick="switchTab('loan')">Home Loan</div>
   <div class="tab"        onclick="switchTab('car')">Car Loan</div>
+  <div class="tab"        onclick="switchTab('rent')">Rent Calc</div>
 </div>
 
 <div id="install-banner">
@@ -834,6 +835,50 @@
   </div>
 </div>
 
+<!-- ═══════════════ RENT CALCULATOR PANEL ═══════════════ -->
+<div class="panel" id="panel-rent">
+
+  <div class="card">
+    <div class="card-title">Rent Details</div>
+
+    <div class="field">
+      <label>Initial Monthly Rent</label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="rent-initial" placeholder="e.g. 20000" min="1" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Annual Increase</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="rent-pct" placeholder="e.g. 10" min="0" step="0.1" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Number of Years</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="rent-years" placeholder="e.g. 5" min="1" max="50" inputmode="numeric" />
+        <span class="suffix">yr</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="rent-error"></div>
+  <button class="btn" onclick="calcRent()">Calculate</button>
+
+  <div class="results" id="rent-results">
+    <div class="summary-grid" id="rent-summary"></div>
+
+    <div class="card">
+      <div class="card-title">Year-wise Rent Breakdown</div>
+      <div class="table-wrap"><table id="rent-table"></table></div>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Utilities ────────────────────────────────────────────────
   const fmt = n =>
@@ -847,7 +892,7 @@
   function clearErr(id)     { $(id).classList.remove('visible'); }
 
   // ── Tab switching ─────────────────────────────────────────────
-  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax', 'loan', 'car'];
+  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax', 'loan', 'car', 'rent'];
   function switchTab(t) {
     TABS.forEach((x, i) => {
       $('panel-' + x).classList.toggle('active', x === t);
@@ -1607,6 +1652,67 @@
       <tbody>${body}</tbody>`;
 
     showResults('car-results');
+  }
+
+  // ── Rent Increment Calculator ─────────────────────────────────
+  function calcRent() {
+    clearErr('rent-error');
+    const initial = fv('rent-initial');
+    const pct     = fv('rent-pct');
+    const years   = iv('rent-years');
+
+    if (initial <= 0) return showErr('rent-error', 'Enter a valid initial monthly rent.');
+    if (pct < 0)      return showErr('rent-error', 'Annual increase cannot be negative.');
+    if (years <= 0)   return showErr('rent-error', 'Enter at least 1 year.');
+
+    const rows = [];
+    let totalPaid = 0;
+    let cumulative = 0;
+
+    for (let y = 1; y <= years; y++) {
+      const monthly  = initial * Math.pow(1 + pct / 100, y - 1);
+      const annual   = monthly * 12;
+      cumulative    += annual;
+      totalPaid     += annual;
+      rows.push({ year: y, monthly, annual, cumulative });
+    }
+
+    const finalMonthly = rows[rows.length - 1].monthly;
+    const growth       = initial > 0 ? (finalMonthly - initial) / initial * 100 : 0;
+
+    $('rent-summary').innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">Final Monthly Rent (Yr ${years})</div>
+        <div class="s-value">${fmt(finalMonthly)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Starting Monthly Rent</div>
+        <div class="s-value">${fmt(initial)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Rent Paid</div>
+        <div class="s-value orange">${fmt(totalPaid)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Rent Growth</div>
+        <div class="s-value orange">${growth.toFixed(1)}% over ${years} yr</div>
+      </div>
+    `;
+
+    const body = rows.map(r => `
+      <tr>
+        <td>${r.year}</td>
+        <td>${fmt(r.monthly)}</td>
+        <td>${fmt(r.annual)}</td>
+        <td class="td-topup">${fmt(r.cumulative)}</td>
+      </tr>`).join('');
+    $('rent-table').innerHTML = `
+      <thead><tr>
+        <th>Yr</th><th>Monthly Rent</th><th>Annual Rent</th><th>Cumulative</th>
+      </tr></thead>
+      <tbody>${body}</tbody>`;
+
+    showResults('rent-results');
   }
 
   // ── iOS "Add to Home Screen" hint ─────────────────────────────

@@ -699,6 +699,72 @@ def calculate_car_loan(
     )
 
 
+# ── Rent Increment Calculator ────────────────────────────────────
+
+@dataclass
+class RentYearResult:
+    year: int
+    monthly_rent: float
+    annual_rent: float
+    cumulative_paid: float
+
+
+@dataclass
+class RentResult:
+    initial_monthly_rent: float
+    annual_increase_pct: float
+    years: int
+    final_monthly_rent: float
+    total_paid: float
+    rent_growth_pct: float
+    year_wise: list[RentYearResult]
+
+
+def calculate_rent(
+    initial_monthly_rent: float,
+    annual_increase_pct: float,
+    years: int,
+) -> RentResult:
+    """
+    Calculate year-wise rent given an annual percentage increase.
+
+    monthly_rent(y) = initial × (1 + pct/100)^(y-1)
+    """
+    if initial_monthly_rent <= 0:
+        raise ValueError("Initial monthly rent must be positive")
+    if annual_increase_pct < 0:
+        raise ValueError("Annual increase percentage cannot be negative")
+    if years <= 0:
+        raise ValueError("Number of years must be at least 1")
+
+    year_wise: list[RentYearResult] = []
+    cumulative = 0.0
+
+    for y in range(1, years + 1):
+        monthly = initial_monthly_rent * (1 + annual_increase_pct / 100) ** (y - 1)
+        annual  = monthly * 12
+        cumulative += annual
+        year_wise.append(RentYearResult(
+            year            = y,
+            monthly_rent    = monthly,
+            annual_rent     = annual,
+            cumulative_paid = cumulative,
+        ))
+
+    final_monthly = year_wise[-1].monthly_rent
+    growth_pct    = (final_monthly - initial_monthly_rent) / initial_monthly_rent * 100
+
+    return RentResult(
+        initial_monthly_rent = initial_monthly_rent,
+        annual_increase_pct  = annual_increase_pct,
+        years                = years,
+        final_monthly_rent   = final_monthly,
+        total_paid           = cumulative,
+        rent_growth_pct      = growth_pct,
+        year_wise            = year_wise,
+    )
+
+
 def format_inr(amount: float) -> str:
     return f"₹{amount:,.2f}"
 

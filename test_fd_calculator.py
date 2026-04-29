@@ -9,6 +9,7 @@ from fd_calculator import (
     FVResult,
     LoanResult,
     OptionsResult,
+    RentResult,
     TaxResult,
     YearResult,
     calculate_car_loan,
@@ -18,6 +19,7 @@ from fd_calculator import (
     calculate_future_value,
     calculate_home_loan,
     calculate_options_value,
+    calculate_rent,
     calculate_tax,
     format_inr,
 )
@@ -848,6 +850,81 @@ class TestCarLoan:
     def test_invalid_tenure_months_raises(self):
         with pytest.raises(ValueError):
             calculate_car_loan(5_00_000, 0, 9.5, 1, tenure_months=12)
+
+
+class TestRent:
+    def test_basic_result_type(self):
+        result = calculate_rent(20_000, 10, 5)
+        assert isinstance(result, RentResult)
+
+    def test_year_count(self):
+        result = calculate_rent(20_000, 10, 5)
+        assert len(result.year_wise) == 5
+
+    def test_year1_rent_equals_initial(self):
+        result = calculate_rent(20_000, 10, 5)
+        assert result.year_wise[0].monthly_rent == pytest.approx(20_000)
+
+    def test_year2_rent_correct(self):
+        result = calculate_rent(20_000, 10, 5)
+        assert result.year_wise[1].monthly_rent == pytest.approx(20_000 * 1.10)
+
+    def test_final_rent_compound_growth(self):
+        result = calculate_rent(20_000, 10, 5)
+        expected = 20_000 * (1.10 ** 4)
+        assert result.final_monthly_rent == pytest.approx(expected)
+
+    def test_annual_rent_is_monthly_times_12(self):
+        result = calculate_rent(15_000, 8, 3)
+        for row in result.year_wise:
+            assert row.annual_rent == pytest.approx(row.monthly_rent * 12)
+
+    def test_cumulative_is_running_sum(self):
+        result = calculate_rent(10_000, 5, 4)
+        running = 0
+        for row in result.year_wise:
+            running += row.annual_rent
+            assert row.cumulative_paid == pytest.approx(running)
+
+    def test_total_paid_equals_last_cumulative(self):
+        result = calculate_rent(10_000, 5, 4)
+        assert result.total_paid == pytest.approx(result.year_wise[-1].cumulative_paid)
+
+    def test_zero_increase_flat_rent(self):
+        result = calculate_rent(25_000, 0, 5)
+        for row in result.year_wise:
+            assert row.monthly_rent == pytest.approx(25_000)
+
+    def test_zero_increase_growth_pct_zero(self):
+        result = calculate_rent(25_000, 0, 5)
+        assert result.rent_growth_pct == pytest.approx(0)
+
+    def test_rent_growth_pct_correct(self):
+        result = calculate_rent(10_000, 10, 3)
+        expected_growth = (10_000 * 1.10 ** 2 - 10_000) / 10_000 * 100
+        assert result.rent_growth_pct == pytest.approx(expected_growth)
+
+    def test_single_year(self):
+        result = calculate_rent(20_000, 10, 1)
+        assert len(result.year_wise) == 1
+        assert result.final_monthly_rent == pytest.approx(20_000)
+        assert result.total_paid == pytest.approx(20_000 * 12)
+
+    def test_invalid_initial_rent_raises(self):
+        with pytest.raises(ValueError):
+            calculate_rent(0, 10, 5)
+
+    def test_negative_increase_raises(self):
+        with pytest.raises(ValueError):
+            calculate_rent(20_000, -1, 5)
+
+    def test_zero_years_raises(self):
+        with pytest.raises(ValueError):
+            calculate_rent(20_000, 10, 0)
+
+    def test_negative_years_raises(self):
+        with pytest.raises(ValueError):
+            calculate_rent(20_000, 10, -3)
 
 
 class TestFormatInr:

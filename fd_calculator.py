@@ -765,6 +765,95 @@ def calculate_rent(
     )
 
 
+# ── Investment Returns (Compound Interest) Calculator ───────────
+
+@dataclass
+class RoiYearResult:
+    year: int
+    contribution: float
+    opening_balance: float    # after this year's contribution, before growth
+    interest_earned: float
+    closing_balance: float
+    total_invested: float     # cumulative invested up to and including this year
+
+
+@dataclass
+class RoiResult:
+    initial_investment: float
+    annual_investment: float
+    annual_return_pct: float
+    years: int
+    future_value: float
+    total_invested: float
+    total_return: float
+    wealth_multiplier: float
+    effective_cagr_pct: float
+    year_wise: list[RoiYearResult]
+
+
+def calculate_roi(
+    initial_investment: float,
+    annual_investment: float,
+    annual_return_pct: float,
+    years: int,
+) -> RoiResult:
+    """
+    Compound investment returns with optional yearly contributions.
+
+    Convention: contributions are made at the start of each year (annuity-due),
+    so each contribution earns the full year's return.
+
+    closing_y = (closing_{y-1} + annual) × (1 + r)
+    opening of year 1 = initial + annual
+    """
+    if initial_investment < 0 or annual_investment < 0:
+        raise ValueError("Investment amounts cannot be negative")
+    if initial_investment == 0 and annual_investment == 0:
+        raise ValueError("At least one of initial or annual investment must be positive")
+    if annual_return_pct < 0:
+        raise ValueError("Annual return rate cannot be negative")
+    if years <= 0:
+        raise ValueError("Number of years must be at least 1")
+
+    r = annual_return_pct / 100
+    balance  = initial_investment
+    invested = initial_investment
+    year_wise: list[RoiYearResult] = []
+
+    for y in range(1, years + 1):
+        opening   = balance + annual_investment
+        invested += annual_investment
+        closing   = opening * (1 + r)
+        interest  = closing - opening
+        year_wise.append(RoiYearResult(
+            year            = y,
+            contribution    = annual_investment,
+            opening_balance = opening,
+            interest_earned = interest,
+            closing_balance = closing,
+            total_invested  = invested,
+        ))
+        balance = closing
+
+    future_value      = balance
+    total_return      = future_value - invested
+    wealth_multiplier = future_value / invested if invested > 0 else 0.0
+    effective_cagr    = ((future_value / invested) ** (1 / years) - 1) * 100 if invested > 0 else 0.0
+
+    return RoiResult(
+        initial_investment = initial_investment,
+        annual_investment  = annual_investment,
+        annual_return_pct  = annual_return_pct,
+        years              = years,
+        future_value       = future_value,
+        total_invested     = invested,
+        total_return       = total_return,
+        wealth_multiplier  = wealth_multiplier,
+        effective_cagr_pct = effective_cagr,
+        year_wise          = year_wise,
+    )
+
+
 def format_inr(amount: float) -> str:
     return f"₹{amount:,.2f}"
 

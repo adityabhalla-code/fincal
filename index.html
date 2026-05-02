@@ -316,6 +316,7 @@
   <div class="tab"        onclick="switchTab('loan')">Home Loan</div>
   <div class="tab"        onclick="switchTab('car')">Car Loan</div>
   <div class="tab"        onclick="switchTab('rent')">Rent Calc</div>
+  <div class="tab"        onclick="switchTab('roi')">Returns</div>
 </div>
 
 <div id="install-banner">
@@ -879,6 +880,64 @@
   </div>
 </div>
 
+<!-- ═══════════════ INVESTMENT RETURNS PANEL ═══════════════ -->
+<div class="panel" id="panel-roi">
+
+  <div class="card">
+    <div class="card-title">Investment Details</div>
+
+    <div class="field">
+      <label>Initial Investment <span style="color:var(--muted);font-weight:400">(lump sum, optional)</span></label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="roi-initial" placeholder="e.g. 100000" min="0" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Annual Investment <span style="color:var(--muted);font-weight:400">(every year, optional)</span></label>
+      <div class="input-wrap has-prefix">
+        <span class="prefix">₹</span>
+        <input type="number" id="roi-annual" placeholder="e.g. 50000" min="0" inputmode="decimal" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Expected Annual Return</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="roi-rate" placeholder="e.g. 12" min="0" step="0.1" inputmode="decimal" />
+        <span class="suffix">% p.a.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Number of Years</label>
+      <div class="input-wrap has-suffix">
+        <input type="number" id="roi-years" placeholder="e.g. 10" min="1" max="60" inputmode="numeric" />
+        <span class="suffix">yr</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="error" id="roi-error"></div>
+  <button class="btn" onclick="calcRoi()">Calculate Returns</button>
+
+  <div class="results" id="roi-results">
+    <div class="summary-grid" id="roi-summary"></div>
+
+    <div class="card" id="roi-bar-card">
+      <div class="card-title">Invested vs Returns</div>
+      <div id="roi-bar" style="height:20px;border-radius:10px;overflow:hidden;display:flex;margin-bottom:10px"></div>
+      <div id="roi-bar-legend" style="display:flex;gap:16px;font-size:0.78rem"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Year-wise Growth</div>
+      <div class="table-wrap"><table id="roi-table"></table></div>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Utilities ────────────────────────────────────────────────
   const fmt = n =>
@@ -892,7 +951,7 @@
   function clearErr(id)     { $(id).classList.remove('visible'); }
 
   // ── Tab switching ─────────────────────────────────────────────
-  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax', 'loan', 'car', 'rent'];
+  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax', 'loan', 'car', 'rent', 'roi'];
   function switchTab(t) {
     TABS.forEach((x, i) => {
       $('panel-' + x).classList.toggle('active', x === t);
@@ -1713,6 +1772,96 @@
       <tbody>${body}</tbody>`;
 
     showResults('rent-results');
+  }
+
+  // ── Investment Returns (Compound Interest) ────────────────────
+  function calcRoi() {
+    clearErr('roi-error');
+    const initial = fv('roi-initial');
+    const annual  = fv('roi-annual');
+    const rate    = fv('roi-rate');
+    const years   = iv('roi-years');
+
+    if (initial < 0 || annual < 0)         return showErr('roi-error', 'Investment amounts cannot be negative.');
+    if (initial === 0 && annual === 0)     return showErr('roi-error', 'Enter an initial or annual investment.');
+    if (rate < 0)                          return showErr('roi-error', 'Return rate cannot be negative.');
+    if (years <= 0)                        return showErr('roi-error', 'Enter at least 1 year.');
+
+    const r = rate / 100;
+
+    // Convention: contribution is added at the start of each year (annuity-due).
+    // Year 1 opening = initial + annual; everything compounds for the year.
+    let balance = initial;
+    let invested = initial;
+    const rows = [];
+
+    for (let y = 1; y <= years; y++) {
+      const opening   = balance + annual;     // contribute at start of year
+      invested       += annual;
+      const closing   = opening * (1 + r);
+      const interest  = closing - opening;
+      rows.push({ year: y, contribution: annual, opening, interest, closing, invested });
+      balance = closing;
+    }
+
+    const futureValue = balance;
+    const totalReturn = futureValue - invested;
+    const multiplier  = invested > 0 ? futureValue / invested : 0;
+    // CAGR over total years (uses original initial + spread of contributions; this is an
+    // effective return over total invested, useful as a sanity figure)
+    const cagr = invested > 0 ? (Math.pow(futureValue / invested, 1 / years) - 1) * 100 : 0;
+
+    $('roi-summary').innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">Future Value (Yr ${years})</div>
+        <div class="s-value">${fmt(futureValue)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Invested</div>
+        <div class="s-value">${fmt(invested)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Return</div>
+        <div class="s-value green">${fmt(totalReturn)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Wealth Multiplier</div>
+        <div class="s-value green">${multiplier.toFixed(2)}x</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Effective CAGR</div>
+        <div class="s-value">${cagr.toFixed(2)}%</div>
+      </div>
+    `;
+
+    // Invested vs Returns bar
+    const invPct = (invested    / futureValue * 100).toFixed(1);
+    const retPct = (totalReturn / futureValue * 100).toFixed(1);
+    $('roi-bar').innerHTML = `
+      <div style="width:${invPct}%;background:var(--primary)"></div>
+      <div style="width:${retPct}%;background:var(--accent)"></div>`;
+    $('roi-bar-legend').innerHTML = `
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--primary);margin-right:4px"></span>Invested ${invPct}%</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:4px"></span>Returns ${retPct}%</span>`;
+
+    // Year-wise table
+    const showContrib = annual > 0;
+    const headerExtra = showContrib ? '<th>Contribution</th>' : '';
+    const body = rows.map(r => `
+      <tr>
+        <td>${r.year}</td>
+        ${showContrib ? `<td class="td-topup">${fmt(r.contribution)}</td>` : ''}
+        <td>${fmt(r.opening)}</td>
+        <td class="td-interest">${fmt(r.interest)}</td>
+        <td>${fmt(r.closing)}</td>
+      </tr>`).join('');
+    $('roi-table').innerHTML = `
+      <thead><tr>
+        <th>Yr</th>${headerExtra}<th>Opening</th><th>Interest</th><th>Closing</th>
+      </tr></thead>
+      <tbody>${body}</tbody>`;
+
+    showResults('roi-results');
   }
 
   // ── iOS "Add to Home Screen" hint ─────────────────────────────

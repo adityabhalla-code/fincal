@@ -10,6 +10,7 @@ from fd_calculator import (
     LoanResult,
     OptionsResult,
     RentResult,
+    RoiResult,
     TaxResult,
     YearResult,
     calculate_car_loan,
@@ -20,6 +21,7 @@ from fd_calculator import (
     calculate_home_loan,
     calculate_options_value,
     calculate_rent,
+    calculate_roi,
     calculate_tax,
     format_inr,
 )
@@ -925,6 +927,111 @@ class TestRent:
     def test_negative_years_raises(self):
         with pytest.raises(ValueError):
             calculate_rent(20_000, 10, -3)
+
+
+class TestRoi:
+    def test_basic_result_type(self):
+        result = calculate_roi(100_000, 0, 12, 5)
+        assert isinstance(result, RoiResult)
+
+    def test_lump_sum_compound_interest(self):
+        # ₹100,000 at 12% for 5 years (annuity-due quirk: contribution=0,
+        # so it reduces to plain compound: P*(1+r)^n)
+        result = calculate_roi(100_000, 0, 12, 5)
+        expected = 100_000 * (1.12 ** 5)
+        assert result.future_value == pytest.approx(expected)
+
+    def test_lump_sum_total_invested(self):
+        result = calculate_roi(100_000, 0, 12, 5)
+        assert result.total_invested == pytest.approx(100_000)
+
+    def test_year_count(self):
+        result = calculate_roi(100_000, 50_000, 10, 8)
+        assert len(result.year_wise) == 8
+
+    def test_annuity_due_year1_growth(self):
+        # No initial; contribute 50k at start of year 1 → year 1 closing = 50k * 1.10
+        result = calculate_roi(0, 50_000, 10, 1)
+        assert result.year_wise[0].closing_balance == pytest.approx(50_000 * 1.10)
+
+    def test_annuity_due_formula(self):
+        # Pure annuity-due (initial=0): FV = P * ((1+r)^n - 1)/r * (1+r)
+        P, r, n = 50_000, 0.10, 5
+        expected = P * ((1 + r) ** n - 1) / r * (1 + r)
+        result = calculate_roi(0, P, 10, n)
+        assert result.future_value == pytest.approx(expected)
+
+    def test_combined_initial_and_annual(self):
+        # ₹100k initial + ₹50k/yr at 10% for 3 years (annuity-due)
+        # Y1: (100k + 50k)*1.10 = 165k
+        # Y2: (165k + 50k)*1.10 = 236.5k
+        # Y3: (236.5k + 50k)*1.10 = 315.15k
+        result = calculate_roi(100_000, 50_000, 10, 3)
+        assert result.future_value == pytest.approx(315_150)
+
+    def test_total_invested_combined(self):
+        result = calculate_roi(100_000, 50_000, 10, 3)
+        assert result.total_invested == pytest.approx(100_000 + 50_000 * 3)
+
+    def test_total_return_positive(self):
+        result = calculate_roi(100_000, 50_000, 12, 10)
+        assert result.total_return > 0
+
+    def test_total_return_equals_fv_minus_invested(self):
+        result = calculate_roi(100_000, 50_000, 12, 10)
+        assert result.total_return == pytest.approx(result.future_value - result.total_invested)
+
+    def test_wealth_multiplier(self):
+        result = calculate_roi(100_000, 0, 12, 5)
+        assert result.wealth_multiplier == pytest.approx(1.12 ** 5)
+
+    def test_zero_return_balance_equals_invested(self):
+        result = calculate_roi(50_000, 10_000, 0, 5)
+        assert result.future_value == pytest.approx(50_000 + 10_000 * 5)
+        assert result.total_return == pytest.approx(0)
+
+    def test_higher_rate_higher_fv(self):
+        low  = calculate_roi(100_000, 0, 8, 10)
+        high = calculate_roi(100_000, 0, 14, 10)
+        assert high.future_value > low.future_value
+
+    def test_longer_tenure_higher_fv(self):
+        short = calculate_roi(100_000, 0, 12, 5)
+        long_ = calculate_roi(100_000, 0, 12, 15)
+        assert long_.future_value > short.future_value
+
+    def test_year_balances_consistent(self):
+        # closing of year y - 1 plus next contribution should give opening of year y
+        result = calculate_roi(100_000, 25_000, 8, 6)
+        for i in range(1, len(result.year_wise)):
+            prev_close = result.year_wise[i - 1].closing_balance
+            this_open  = result.year_wise[i].opening_balance
+            assert this_open == pytest.approx(prev_close + 25_000)
+
+    def test_cumulative_invested_grows(self):
+        result = calculate_roi(100_000, 25_000, 8, 4)
+        for i, row in enumerate(result.year_wise):
+            assert row.total_invested == pytest.approx(100_000 + 25_000 * (i + 1))
+
+    def test_negative_initial_raises(self):
+        with pytest.raises(ValueError):
+            calculate_roi(-1, 10_000, 10, 5)
+
+    def test_negative_annual_raises(self):
+        with pytest.raises(ValueError):
+            calculate_roi(100_000, -1, 10, 5)
+
+    def test_both_zero_raises(self):
+        with pytest.raises(ValueError):
+            calculate_roi(0, 0, 10, 5)
+
+    def test_negative_rate_raises(self):
+        with pytest.raises(ValueError):
+            calculate_roi(100_000, 0, -1, 5)
+
+    def test_zero_years_raises(self):
+        with pytest.raises(ValueError):
+            calculate_roi(100_000, 0, 10, 0)
 
 
 class TestFormatInr:

@@ -1,6 +1,8 @@
 """Tests for FD Investment Calculator"""
 
 import pytest
+from datetime import date
+
 from fd_calculator import (
     CarLoanResult,
     CompoundingFrequency,
@@ -12,6 +14,8 @@ from fd_calculator import (
     RentResult,
     RoiResult,
     TaxResult,
+    XirrCashFlow,
+    XirrResult,
     YearResult,
     calculate_car_loan,
     calculate_dcf,
@@ -23,6 +27,7 @@ from fd_calculator import (
     calculate_rent,
     calculate_roi,
     calculate_tax,
+    calculate_xirr,
     format_inr,
 )
 
@@ -1032,6 +1037,96 @@ class TestRoi:
     def test_zero_years_raises(self):
         with pytest.raises(ValueError):
             calculate_roi(100_000, 0, 10, 0)
+
+
+class TestXirr:
+    # ── helpers ──────────────────────────────────────────────────
+    def _cf(self, d, amount):
+        return XirrCashFlow(date=d, amount=amount)
+
+    # ── basic correctness ─────────────────────────────────────────
+    def test_result_type(self):
+        cfs = [self._cf(date(2023, 1, 1), -100_000),
+               self._cf(date(2024, 1, 1),  112_000)]
+        assert isinstance(calculate_xirr(cfs), XirrResult)
+
+    def test_approx_12pct_one_year(self):
+        # invest 100k, redeem 112k exactly 365 days later → XIRR ≈ 12%
+        cfs = [self._cf(date(2023, 1, 1), -100_000),
+               self._cf(date(2024, 1, 1),  112_000)]
+        result = calculate_xirr(cfs)
+        assert result.xirr_pct == pytest.approx(12.0, abs=0.05)
+
+    def test_zero_gain_zero_xirr(self):
+        # invest and redeem same amount → XIRR ≈ 0%
+        cfs = [self._cf(date(2023, 1, 1), -100_000),
+               self._cf(date(2024, 1, 1),  100_000)]
+        result = calculate_xirr(cfs)
+        assert result.xirr_pct == pytest.approx(0.0, abs=0.01)
+
+    def test_two_year_return(self):
+        # 100k → 144k over 2 years → XIRR ≈ 20% (1.2^2 = 1.44)
+        cfs = [self._cf(date(2022, 1, 1), -100_000),
+               self._cf(date(2024, 1, 1),  144_000)]
+        result = calculate_xirr(cfs)
+        assert result.xirr_pct == pytest.approx(20.0, abs=0.1)
+
+    def test_multi_invest_single_redeem(self):
+        # SIP: 3 × 50k invested annually, redeem all at end
+        cfs = [self._cf(date(2021, 6, 1), -50_000),
+               self._cf(date(2022, 6, 1), -50_000),
+               self._cf(date(2023, 6, 1), -50_000),
+               self._cf(date(2024, 6, 1),  180_000)]
+        result = calculate_xirr(cfs)
+        assert 0 < result.xirr_pct < 50   # positive return
+
+    def test_dates_unsorted_same_result(self):
+        # XIRR must sort internally; reversed order gives same answer
+        ordered = [self._cf(date(2023, 1, 1), -100_000),
+                   self._cf(date(2024, 1, 1),  115_000)]
+        reversed_ = [self._cf(date(2024, 1, 1),  115_000),
+                     self._cf(date(2023, 1, 1), -100_000)]
+        r1 = calculate_xirr(ordered).xirr_pct
+        r2 = calculate_xirr(reversed_).xirr_pct
+        assert r1 == pytest.approx(r2, abs=1e-6)
+
+    # ── summary fields ────────────────────────────────────────────
+    def test_total_invested(self):
+        cfs = [self._cf(date(2023, 1, 1), -60_000),
+               self._cf(date(2023, 7, 1), -40_000),
+               self._cf(date(2024, 1, 1),  120_000)]
+        result = calculate_xirr(cfs)
+        assert result.total_invested == pytest.approx(100_000)
+
+    def test_total_redeemed(self):
+        cfs = [self._cf(date(2023, 1, 1), -100_000),
+               self._cf(date(2023, 7, 1),   20_000),
+               self._cf(date(2024, 1, 1),   90_000)]
+        result = calculate_xirr(cfs)
+        assert result.total_redeemed == pytest.approx(110_000)
+
+    def test_net_gain(self):
+        cfs = [self._cf(date(2023, 1, 1), -100_000),
+               self._cf(date(2024, 1, 1),  112_000)]
+        result = calculate_xirr(cfs)
+        assert result.net_gain == pytest.approx(12_000)
+
+    # ── validation errors ─────────────────────────────────────────
+    def test_single_cashflow_raises(self):
+        with pytest.raises(ValueError):
+            calculate_xirr([self._cf(date(2023, 1, 1), -100_000)])
+
+    def test_no_outflow_raises(self):
+        cfs = [self._cf(date(2023, 1, 1), 50_000),
+               self._cf(date(2024, 1, 1), 50_000)]
+        with pytest.raises(ValueError):
+            calculate_xirr(cfs)
+
+    def test_no_inflow_raises(self):
+        cfs = [self._cf(date(2023, 1, 1), -50_000),
+               self._cf(date(2024, 1, 1), -50_000)]
+        with pytest.raises(ValueError):
+            calculate_xirr(cfs)
 
 
 class TestFormatInr:

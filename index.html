@@ -297,6 +297,48 @@
       color: #2e7d32;
       text-align: center;
     }
+    .s-value.red { color: #c62828; }
+
+    .xirr-row {
+      display: grid;
+      grid-template-columns: 1fr 78px 1fr 30px;
+      gap: 6px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+    .xirr-row select {
+      height: 42px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 6px;
+      font-size: 0.85rem;
+      background: white;
+      color: var(--text);
+      outline: none;
+    }
+    .xirr-row input[type="date"] {
+      height: 42px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 10px;
+      font-size: 0.85rem;
+      width: 100%;
+      color: var(--text);
+      outline: none;
+    }
+    .xirr-remove {
+      height: 30px;
+      width: 30px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: white;
+      color: var(--muted);
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
   </style>
 </head>
 <body>
@@ -317,6 +359,7 @@
   <div class="tab"        onclick="switchTab('car')">Car Loan</div>
   <div class="tab"        onclick="switchTab('rent')">Rent Calc</div>
   <div class="tab"        onclick="switchTab('roi')">Returns</div>
+  <div class="tab"        onclick="switchTab('xirr')">XIRR</div>
 </div>
 
 <div id="install-banner">
@@ -938,6 +981,32 @@
   </div>
 </div>
 
+<!-- ═══════════════ XIRR PANEL ═══════════════ -->
+<div class="panel" id="panel-xirr">
+
+  <div class="card">
+    <div class="card-title">Cash Flows</div>
+    <p style="font-size:0.78rem;color:var(--muted);margin-bottom:14px">
+      <strong>Invest</strong> = money going out &nbsp;·&nbsp; <strong>Redeem</strong> = money coming in
+    </p>
+
+    <div style="display:grid;grid-template-columns:1fr 78px 1fr 30px;gap:6px;margin-bottom:6px;font-size:0.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:0 2px">
+      <span>Date</span><span>Type</span><span>Amount (₹)</span><span></span>
+    </div>
+
+    <div id="xirr-rows"></div>
+
+    <button class="btn" style="margin-top:8px;background:var(--card);color:var(--primary);border:1px solid var(--primary);box-shadow:none" onclick="addXirrRow()">+ Add Row</button>
+  </div>
+
+  <div class="error" id="xirr-error"></div>
+  <button class="btn" onclick="calcXirr()">Calculate XIRR</button>
+
+  <div class="results" id="xirr-results">
+    <div class="summary-grid" id="xirr-summary"></div>
+  </div>
+</div>
+
 <script>
   // ── Utilities ────────────────────────────────────────────────
   const fmt = n =>
@@ -951,7 +1020,7 @@
   function clearErr(id)     { $(id).classList.remove('visible'); }
 
   // ── Tab switching ─────────────────────────────────────────────
-  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax', 'loan', 'car', 'rent', 'roi'];
+  const TABS = ['std', 'top', 'fv', 'opt', 'dcf', 'tax', 'loan', 'car', 'rent', 'roi', 'xirr'];
   function switchTab(t) {
     TABS.forEach((x, i) => {
       $('panel-' + x).classList.toggle('active', x === t);
@@ -1863,6 +1932,107 @@
 
     showResults('roi-results');
   }
+
+  // ── XIRR ──────────────────────────────────────────────────────
+  function fmtDate(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  }
+
+  function addXirrRow(dateVal='', type='invest', amount='') {
+    const row = document.createElement('div');
+    row.className = 'xirr-row';
+    row.innerHTML = `
+      <input type="date" class="xirr-date" value="${dateVal}" />
+      <select class="xirr-type">
+        <option value="invest" ${type==='invest'?'selected':''}>Invest</option>
+        <option value="redeem" ${type==='redeem'?'selected':''}>Redeem</option>
+      </select>
+      <div class="input-wrap has-prefix" style="margin:0">
+        <span class="prefix">₹</span>
+        <input type="number" class="xirr-amount" placeholder="Amount" min="1" inputmode="decimal" value="${amount}" />
+      </div>
+      <button class="xirr-remove" onclick="this.closest('.xirr-row').remove()">✕</button>`;
+    $('xirr-rows').appendChild(row);
+  }
+
+  function xirrNewton(flows) {
+    let r = 0.1;
+    for (let i = 0; i < 300; i++) {
+      let f = 0, df = 0;
+      for (const {t, c} of flows) {
+        const v = Math.pow(1 + r, t);
+        f  += c / v;
+        df -= t * c / (v * (1 + r));
+      }
+      if (Math.abs(f) < 1e-10) break;
+      if (Math.abs(df) < 1e-20) break;
+      const r2 = r - f / df;
+      if (Math.abs(r2 - r) < 1e-9) { r = r2; break; }
+      r = r2 <= -1 ? (r - 1) / 2 : r2;   // bounce back into valid domain
+    }
+    return r;
+  }
+
+  function calcXirr() {
+    clearErr('xirr-error');
+    const rows = document.querySelectorAll('.xirr-row');
+    if (rows.length < 2) return showErr('xirr-error', 'Enter at least 2 cash flows.');
+
+    const cfs = [];
+    for (const row of rows) {
+      const dateVal = row.querySelector('.xirr-date').value;
+      const type    = row.querySelector('.xirr-type').value;
+      const amt     = parseFloat(row.querySelector('.xirr-amount').value);
+      if (!dateVal || !amt || amt <= 0) return showErr('xirr-error', 'All rows need a valid date and amount.');
+      cfs.push({ date: new Date(dateVal + 'T00:00:00'), amount: type === 'invest' ? -amt : amt });
+    }
+
+    cfs.sort((a, b) => a.date - b.date);
+
+    if (!cfs.some(c => c.amount > 0)) return showErr('xirr-error', 'Add at least one Redeem entry.');
+    if (!cfs.some(c => c.amount < 0)) return showErr('xirr-error', 'Add at least one Invest entry.');
+
+    const d0    = cfs[0].date;
+    const flows = cfs.map(c => ({ t: (c.date - d0) / (365.25 * 86400000), c: c.amount }));
+
+    const r = xirrNewton(flows);
+    if (!isFinite(r) || r <= -1) return showErr('xirr-error', 'Could not converge — check cash flows for consistency.');
+
+    const totalInvested = cfs.filter(c => c.amount < 0).reduce((s, c) => s - c.amount, 0);
+    const totalRedeemed = cfs.filter(c => c.amount > 0).reduce((s, c) => s + c.amount, 0);
+    const netGain       = totalRedeemed - totalInvested;
+
+    $('xirr-summary').innerHTML = `
+      <div class="sum-card hero full">
+        <div class="s-label">XIRR — Annualised Return</div>
+        <div class="s-value">${(r * 100).toFixed(2)}%</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Invested</div>
+        <div class="s-value">${fmt(totalInvested)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Total Redeemed</div>
+        <div class="s-value">${fmt(totalRedeemed)}</div>
+      </div>
+      <div class="sum-card">
+        <div class="s-label">Net Gain / Loss</div>
+        <div class="s-value ${netGain >= 0 ? 'green' : 'red'}">${netGain >= 0 ? '+' : ''}${fmt(netGain)}</div>
+      </div>
+    `;
+    showResults('xirr-results');
+  }
+
+  // Seed XIRR panel with 3 example rows
+  (function initXirr() {
+    const now   = new Date();
+    const d1yr  = new Date(now); d1yr.setFullYear(d1yr.getFullYear() - 1);
+    const d6mo  = new Date(now); d6mo.setMonth(d6mo.getMonth() - 6);
+    addXirrRow(fmtDate(d1yr), 'invest');
+    addXirrRow(fmtDate(d6mo), 'invest');
+    addXirrRow(fmtDate(now),  'redeem');
+  })();
 
   // ── iOS "Add to Home Screen" hint ─────────────────────────────
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);

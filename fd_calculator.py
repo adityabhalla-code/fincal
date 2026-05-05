@@ -1,6 +1,7 @@
 """Fixed Deposit (FD) Investment Calculator"""
 
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 
 
@@ -851,6 +852,71 @@ def calculate_roi(
         wealth_multiplier  = wealth_multiplier,
         effective_cagr_pct = effective_cagr,
         year_wise          = year_wise,
+    )
+
+
+# ── XIRR Calculator ─────────────────────────────────────────────
+
+@dataclass
+class XirrCashFlow:
+    date: date
+    amount: float   # negative = outflow (invest), positive = inflow (redeem)
+
+
+@dataclass
+class XirrResult:
+    cash_flows: list[XirrCashFlow]
+    xirr_pct: float
+    total_invested: float
+    total_redeemed: float
+    net_gain: float
+
+
+def calculate_xirr(
+    cash_flows: list[XirrCashFlow],
+    guess: float = 0.1,
+) -> XirrResult:
+    """
+    Extended IRR for irregular cash flows (Newton-Raphson).
+
+    f(r) = Σ C_i / (1+r)^t_i  where t_i = (date_i - date_0) / 365.25
+    Solve f(r) = 0 for r.
+    """
+    if len(cash_flows) < 2:
+        raise ValueError("At least 2 cash flows are required")
+    if not any(cf.amount > 0 for cf in cash_flows):
+        raise ValueError("At least one cash flow must be positive (redemption)")
+    if not any(cf.amount < 0 for cf in cash_flows):
+        raise ValueError("At least one cash flow must be negative (investment)")
+
+    sorted_cfs = sorted(cash_flows, key=lambda cf: cf.date)
+    d0 = sorted_cfs[0].date
+    t  = [(cf.date - d0).days / 365.25 for cf in sorted_cfs]
+    C  = [cf.amount for cf in sorted_cfs]
+
+    r = guess
+    for _ in range(300):
+        f  = sum(C[i] / (1 + r) ** t[i] for i in range(len(C)))
+        df = sum(-t[i] * C[i] / (1 + r) ** (t[i] + 1) for i in range(len(C)))
+        if abs(f) < 1e-10:
+            break
+        if abs(df) < 1e-20:
+            break
+        r2 = r - f / df
+        if abs(r2 - r) < 1e-9:
+            r = r2
+            break
+        r = max(r2, -0.9999)   # keep in valid domain
+
+    total_invested = sum(-cf.amount for cf in cash_flows if cf.amount < 0)
+    total_redeemed = sum( cf.amount for cf in cash_flows if cf.amount > 0)
+
+    return XirrResult(
+        cash_flows     = cash_flows,
+        xirr_pct       = r * 100,
+        total_invested = total_invested,
+        total_redeemed = total_redeemed,
+        net_gain       = total_redeemed - total_invested,
     )
 
 
